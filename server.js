@@ -19,27 +19,28 @@ const MENU = `
 `;
 
 app.post("/webhook", async (req, res) => {
-  // نرجع 200 فوراً حتى لا يحصل timeout
   res.sendStatus(200);
 
   try {
-    console.log("🔥 Webhook received");
-
     if (req.body.typeWebhook !== "incomingMessageReceived") return;
 
     const message =
       req.body.messageData?.extendedTextMessageData?.text ||
       req.body.messageData?.textMessageData?.textMessage;
 
-    const chatId = req.body.senderData?.chatId;
+    let chatId = req.body.senderData?.chatId;
 
-    if (!message || !chatId) {
-      console.log("⚠️ No message or chatId");
-      return;
-    }
+    if (!message || !chatId) return;
 
     console.log("📩 Message:", message);
-    console.log("👤 ChatID:", chatId);
+    console.log("👤 Original ChatID:", chatId);
+
+    // 🔥 تصحيح chatId إذا كان ناقص @
+    if (!chatId.includes("@c.us")) {
+      chatId = chatId.replace("c.us", "@c.us");
+    }
+
+    console.log("✅ Fixed ChatID:", chatId);
 
     if (!OPENAI_KEY || !GREEN_TOKEN || !ID_INSTANCE) {
       console.log("❌ Missing ENV variables");
@@ -71,27 +72,21 @@ app.post("/webhook", async (req, res) => {
 
     console.log("🤖 AI Reply:", reply);
 
-    // إرسال عبر Green API (cluster 7103)
-    await axios.post(
+    // إرسال عبر Green API
+    const response = await axios.post(
       `https://7103.api.greenapi.com/waInstance${ID_INSTANCE}/sendMessage/${GREEN_TOKEN}`,
       {
         chatId: chatId,
         message: reply
-      },
-      {
-        headers: {
-          "Content-Type": "application/json"
-        }
       }
     );
 
-    console.log("✅ Message sent successfully");
+    console.log("✅ Green Response:", response.data);
 
   } catch (error) {
-    console.log("❌ FULL ERROR:");
-    console.log("Message:", error.message);
-    console.log("Status:", error.response?.status);
-    console.log("Data:", error.response?.data);
+    console.log("❌ ERROR STATUS:", error.response?.status);
+    console.log("❌ ERROR DATA:", error.response?.data);
+    console.log("❌ ERROR MESSAGE:", error.message);
   }
 });
 
