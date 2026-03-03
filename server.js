@@ -80,11 +80,13 @@ await axios.post(
   {
     chatId: chatId,
     message: reply
+  },
+  {
+    headers: {
+      "Content-Type": "application/json"
+    }
   }
 );
-      }
-    );
-
     console.log("✅ Message sent");
 
   } catch (error) {
