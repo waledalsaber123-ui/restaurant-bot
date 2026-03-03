@@ -7,6 +7,7 @@ app.use(express.json());
 const OPENAI_KEY = process.env.OPENAI_KEY;
 const GREEN_TOKEN = process.env.GREEN_TOKEN;
 const ID_INSTANCE = process.env.ID_INSTANCE;
+const PORT = process.env.PORT || 3000;
 
 const MENU = `
 المنيو:
@@ -19,21 +20,30 @@ const MENU = `
 
 app.post("/webhook", async (req, res) => {
 
-  // 🔥 مهم جداً — نرد 200 فوراً
+  // 🔥 نرد 200 فوراً حتى لا يعلق الـ webhook
   res.sendStatus(200);
 
   try {
 
-    console.log("🔥 Webhook received:", JSON.stringify(req.body));
+    console.log("🔥 Webhook received:");
+    console.log(JSON.stringify(req.body, null, 2));
 
+    // نستقبل فقط الرسائل الجديدة
     if (req.body.typeWebhook !== "incomingMessageReceived") return;
 
     const message =
-      req.body.messageData?.extendedTextMessageData?.text;
+      req.body.messageData?.extendedTextMessageData?.text ||
+      req.body.messageData?.textMessageData?.textMessage;
 
     const chatId = req.body.senderData?.chatId;
 
-    if (!message || !chatId) return;
+    if (!message || !chatId) {
+      console.log("⚠️ No message or chatId");
+      return;
+    }
+
+    console.log("📩 Message:", message);
+    console.log("👤 Chat ID:", chatId);
 
     // 🧠 طلب OpenAI
     const ai = await axios.post(
@@ -58,6 +68,8 @@ app.post("/webhook", async (req, res) => {
 
     const reply = ai.data.choices[0].message.content;
 
+    console.log("🤖 AI Reply:", reply);
+
     // 📤 إرسال الرد عبر Green API
     await axios.post(
       `https://api.green-api.com/waInstance${ID_INSTANCE}/sendMessage/${GREEN_TOKEN}`,
@@ -66,6 +78,8 @@ app.post("/webhook", async (req, res) => {
         message: reply
       }
     );
+
+    console.log("✅ Message sent");
 
   } catch (error) {
     console.log("❌ ERROR:", error.response?.data || error.message);
@@ -76,6 +90,6 @@ app.get("/", (req, res) => {
   res.send("Restaurant bot running 🚀");
 });
 
-app.listen(3000, () => {
-  console.log("Server running on port 3000");
+app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
 });
