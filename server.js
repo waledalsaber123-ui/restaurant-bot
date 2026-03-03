@@ -4,10 +4,11 @@ import axios from "axios";
 const app = express();
 app.use(express.json());
 
+const PORT = process.env.PORT || 3000;
+
 const OPENAI_KEY = process.env.OPENAI_KEY;
 const GREEN_TOKEN = process.env.GREEN_TOKEN;
 const ID_INSTANCE = process.env.ID_INSTANCE;
-const PORT = process.env.PORT || 3000;
 
 const MENU = `
 المنيو:
@@ -19,9 +20,13 @@ const MENU = `
 `;
 
 app.post("/webhook", async (req, res) => {
+  // مهم جداً — نرد فوراً
   res.sendStatus(200);
 
   try {
+    console.log("🔥 Webhook triggered");
+
+    // نستقبل فقط الرسائل الجديدة
     if (req.body.typeWebhook !== "incomingMessageReceived") return;
 
     const message =
@@ -30,20 +35,29 @@ app.post("/webhook", async (req, res) => {
 
     let chatId = req.body.senderData?.chatId;
 
-    if (!message || !chatId) return;
+    if (!message || !chatId) {
+      console.log("⚠️ Missing message or chatId");
+      return;
+    }
 
     console.log("📩 Message:", message);
     console.log("👤 Original ChatID:", chatId);
 
-    // 🔥 تصحيح chatId إذا كان ناقص @
+    // تصحيح chatId إذا كان ناقص @
     if (!chatId.includes("@c.us")) {
       chatId = chatId.replace("c.us", "@c.us");
     }
 
     console.log("✅ Fixed ChatID:", chatId);
 
+    // طباعة المتغيرات للتأكد
+    console.log("ENV CHECK:");
+    console.log("ID_INSTANCE:", ID_INSTANCE);
+    console.log("GREEN_TOKEN:", GREEN_TOKEN ? "EXISTS" : "MISSING");
+    console.log("OPENAI_KEY:", OPENAI_KEY ? "EXISTS" : "MISSING");
+
     if (!OPENAI_KEY || !GREEN_TOKEN || !ID_INSTANCE) {
-      console.log("❌ Missing ENV variables");
+      console.log("❌ ENV VARIABLES MISSING");
       return;
     }
 
@@ -69,11 +83,10 @@ app.post("/webhook", async (req, res) => {
     );
 
     const reply = ai.data.choices[0].message.content;
-
     console.log("🤖 AI Reply:", reply);
 
-    // إرسال عبر Green API
-    const response = await axios.post(
+    // إرسال عبر Green API (Cluster 7103)
+    const greenResponse = await axios.post(
       `https://7103.api.greenapi.com/waInstance${ID_INSTANCE}/sendMessage/${GREEN_TOKEN}`,
       {
         chatId: chatId,
@@ -81,7 +94,7 @@ app.post("/webhook", async (req, res) => {
       }
     );
 
-    console.log("✅ Green Response:", response.data);
+    console.log("✅ Green API Response:", greenResponse.data);
 
   } catch (error) {
     console.log("❌ ERROR STATUS:", error.response?.status);
@@ -95,5 +108,5 @@ app.get("/", (req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
+  console.log(`🚀 Server running on port ${PORT}`);
 });
