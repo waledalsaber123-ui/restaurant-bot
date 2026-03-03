@@ -20,7 +20,7 @@ const MENU = `
 
 app.post("/webhook", async (req, res) => {
 
-  // 🔥 نرد 200 فوراً حتى لا يعلق الـ webhook
+  // 🔥 مهم جداً — نرد 200 فوراً
   res.sendStatus(200);
 
   try {
@@ -28,7 +28,6 @@ app.post("/webhook", async (req, res) => {
     console.log("🔥 Webhook received:");
     console.log(JSON.stringify(req.body, null, 2));
 
-    // نستقبل فقط الرسائل الجديدة
     if (req.body.typeWebhook !== "incomingMessageReceived") return;
 
     const message =
@@ -43,13 +42,18 @@ app.post("/webhook", async (req, res) => {
     }
 
     console.log("📩 Message:", message);
-    console.log("👤 Chat ID:", chatId);
 
-    // 🧠 طلب OpenAI
+    // 🔥 تأكد أن المفتاح موجود
+    if (!OPENAI_KEY) {
+      console.log("❌ OPENAI_KEY missing");
+      return;
+    }
+
+    // 🧠 طلب OpenAI (غيرنا الموديل)
     const ai = await axios.post(
       "https://api.openai.com/v1/chat/completions",
       {
-        model: "gpt-4o-mini",
+        model: "gpt-3.5-turbo",
         messages: [
           {
             role: "system",
@@ -82,7 +86,8 @@ app.post("/webhook", async (req, res) => {
     console.log("✅ Message sent");
 
   } catch (error) {
-    console.log("❌ ERROR:", error.response?.data || error.message);
+    console.log("❌ ERROR:");
+    console.log(error.response?.data || error.message);
   }
 });
 
