@@ -4,10 +4,9 @@ import axios from "axios";
 const app = express();
 app.use(express.json());
 
-const OPENAI_KEY = "PUT_OPENAI_KEY_HERE";
-const GREEN_TOKEN = "PUT_GREEN_TOKEN_HERE";
-const ID_INSTANCE = "PUT_ID_INSTANCE_HERE";
-
+const OPENAI_KEY = process.env.OPENAI_KEY;
+const GREEN_TOKEN = process.env.GREEN_TOKEN;
+const ID_INSTANCE = process.env.ID_INSTANCE;
 const MENU = `
 المنيو:
 - ديناميت زينجر: 1 دينار
