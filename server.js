@@ -75,10 +75,13 @@ app.post("/webhook", async (req, res) => {
     console.log("🤖 AI Reply:", reply);
 
     // 📤 إرسال الرد عبر Green API
-    await axios.post(
-https://7103.api.greenapi.com/waInstance${7103536211}/sendMessage/${ec8a0f5e26d24befb082c36705438be6926f2c7f18d04eb4ad}{
-        chatId: chatId,
-        message: reply
+await axios.post(
+  `https://7103.api.greenapi.com/waInstance${ID_INSTANCE}/sendMessage/${GREEN_TOKEN}`,
+  {
+    chatId: chatId,
+    message: reply
+  }
+);
       }
     );
 
