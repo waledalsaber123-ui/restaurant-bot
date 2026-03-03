@@ -19,14 +19,11 @@ const MENU = `
 `;
 
 app.post("/webhook", async (req, res) => {
-
-  // 🔥 مهم جداً — نرد 200 فوراً
+  // نرجع 200 فوراً حتى لا يحصل timeout
   res.sendStatus(200);
 
   try {
-
-    console.log("🔥 Webhook received:");
-    console.log(JSON.stringify(req.body, null, 2));
+    console.log("🔥 Webhook received");
 
     if (req.body.typeWebhook !== "incomingMessageReceived") return;
 
@@ -42,14 +39,14 @@ app.post("/webhook", async (req, res) => {
     }
 
     console.log("📩 Message:", message);
+    console.log("👤 ChatID:", chatId);
 
-    // 🔥 تأكد أن المفتاح موجود
-    if (!OPENAI_KEY) {
-      console.log("❌ OPENAI_KEY missing");
+    if (!OPENAI_KEY || !GREEN_TOKEN || !ID_INSTANCE) {
+      console.log("❌ Missing ENV variables");
       return;
     }
 
-    // 🧠 طلب OpenAI (غيرنا الموديل)
+    // طلب OpenAI
     const ai = await axios.post(
       "https://api.openai.com/v1/chat/completions",
       {
@@ -74,19 +71,27 @@ app.post("/webhook", async (req, res) => {
 
     console.log("🤖 AI Reply:", reply);
 
-    // 📤 إرسال الرد عبر Green API
-await axios.post(
-  `https://api.green-api.com/waInstance${ID_INSTANCE}/sendMessage/${GREEN_TOKEN}`,
-  {
-    chatId: chatId,
-    message: reply
-  }
-);
-    console.log("✅ Message sent");
+    // إرسال عبر Green API (cluster 7103)
+    await axios.post(
+      `https://7103.api.greenapi.com/waInstance${ID_INSTANCE}/sendMessage/${GREEN_TOKEN}`,
+      {
+        chatId: chatId,
+        message: reply
+      },
+      {
+        headers: {
+          "Content-Type": "application/json"
+        }
+      }
+    );
+
+    console.log("✅ Message sent successfully");
 
   } catch (error) {
-    console.log("❌ ERROR:");
-    console.log(error.response?.data || error.message);
+    console.log("❌ FULL ERROR:");
+    console.log("Message:", error.message);
+    console.log("Status:", error.response?.status);
+    console.log("Data:", error.response?.data);
   }
 });
 
