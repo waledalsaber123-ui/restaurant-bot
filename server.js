@@ -76,8 +76,7 @@ app.post("/webhook", async (req, res) => {
 
     // 📤 إرسال الرد عبر Green API
 await axios.post(
-  `https://api.green-api.com/waInstance${ID_INSTANCE}/sendMessage/${GREEN_TOKEN}`,
-  {
+https://7103.api.greenapi.com/waInstance7103536211/sendMessage/ec8a0f5e26d24befb082c36705438be6926f2c7f18d04eb4ad  {
     chatId: chatId,
     message: reply
   },
