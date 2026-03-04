@@ -33,6 +33,27 @@ return ORDERS[user];
 }
 
 /* ========================= */
+/* WORKING HOURS CHECK */
+/* ========================= */
+
+function restaurantClosed(){
+
+const now = new Date()
+
+const hour = now.getHours()
+
+// مغلق من 3:30 فجراً حتى 10 صباحاً
+if(hour >= 3 && hour < 10){
+
+return true
+
+}
+
+return false
+
+}
+
+/* ========================= */
 /* SEND MESSAGE */
 /* ========================= */
 
@@ -50,7 +71,7 @@ message
 
 }catch(e){
 
-console.log("GreenAPI ERROR:",e.message)
+console.log("GreenAPI ERROR:",e.response?.data || e.message)
 
 }
 
@@ -79,10 +100,30 @@ if(chatId.includes("@g.us")) return
 
 console.log("Incoming:",message)
 
+/* ========================= */
+/* CHECK WORKING HOURS */
+/* ========================= */
+
+if(restaurantClosed()){
+
+await send(chatId,
+`⛔ المطعم مغلق حالياً
+
+أوقات العمل من 10 صباحاً حتى 3:30 فجراً.
+
+ما عنا فروع غير شارع الجامعة عمان.`)
+
+return
+}
+
+/* ========================= */
+/* ORDER MEMORY */
+/* ========================= */
+
 const order = getOrder(chatId)
 
 /* ========================= */
-/* QUANTITY */
+/* HANDLE QUANTITY */
 /* ========================= */
 
 if(order.step === "waiting_qty" && !isNaN(message)){
@@ -164,7 +205,7 @@ const reply = ai.data.choices[0].message.content
 console.log("AI:",reply)
 
 /* ========================= */
-/* DETECT ITEM */
+/* DETECT ADDED ITEM */
 /* ========================= */
 
 if(
@@ -173,11 +214,11 @@ reply.includes("تم اضافه") ||
 reply.includes("Added")
 ){
 
-const nameMatch = reply.match(/تم إضافة (.*)/)
+const match = reply.match(/تم إضافة (.*)/)
 
-if(nameMatch){
+if(match){
 
-const itemName = nameMatch[1]
+const itemName = match[1]
 
 order.items.push({
 name:itemName
@@ -189,11 +230,15 @@ order.step="waiting_qty"
 
 }
 
+/* ========================= */
+/* SEND REPLY */
+/* ========================= */
+
 await send(chatId,reply)
 
 }catch(e){
 
-console.log("BOT ERROR:",e.message)
+console.log("BOT ERROR:",e.response?.data || e.message)
 
 }
 
@@ -215,6 +260,6 @@ res.send("Restaurant Bot Running 🚀")
 
 app.listen(PORT,()=>{
 
-console.log(`Restaurant Bot Running on port ${PORT}`)
+console.log(`🚀 Restaurant Bot Running on port ${PORT}`)
 
 })
