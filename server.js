@@ -38,27 +38,35 @@ return ORDERS[user];
 
 function restaurantClosed(){
 
-// وقت عمّان الحقيقي
-const now = new Date(
+// نحصل على وقت عمّان الحقيقي
+const jordanNow = new Date(
 new Date().toLocaleString("en-US",{timeZone:"Asia/Amman"})
 )
 
-const hour = now.getHours()
-const minute = now.getMinutes()
+const hour = jordanNow.getHours()
+const minute = jordanNow.getMinutes()
 
-const currentMinutes = hour * 60 + minute
+const current = hour * 60 + minute
 
 // 2:00 PM
-const openTime = 14 * 60
+const open = 14 * 60
 
 // 3:30 AM
-const closeTime = 3 * 60 + 30
+const close = 3 * 60 + 30
 
-// المطعم يعمل من 14:00 حتى 03:30
-if(currentMinutes >= openTime || currentMinutes <= closeTime){
+console.log("Jordan time:", hour + ":" + minute)
+
+// إذا الوقت بين 14:00 و 23:59 → مفتوح
+if(current >= open){
 return false
 }
 
+// إذا الوقت بين 00:00 و 03:30 → مفتوح
+if(current <= close){
+return false
+}
+
+// باقي الأوقات → مغلق
 return true
 
 }
