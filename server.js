@@ -39,14 +39,12 @@ return ORDERS[user];
 function restaurantClosed(){
 
 const now = new Date()
-
 const hour = now.getHours()
 
-// مغلق من 3:30 فجراً حتى 10 صباحاً
-if(hour >= 3 && hour < 10){
+// الدوام من 2 ظهراً (14) حتى 3:30 فجراً
 
+if(hour >= 3 && hour < 14){
 return true
-
 }
 
 return false
@@ -109,7 +107,7 @@ if(restaurantClosed()){
 await send(chatId,
 `⛔ المطعم مغلق حالياً
 
-أوقات العمل من 10 صباحاً حتى 3:30 فجراً.
+أوقات العمل من 2 عصراً حتى 3:30 فجراً بسبب رمضان.
 
 ما عنا فروع غير شارع الجامعة عمان.`)
 
