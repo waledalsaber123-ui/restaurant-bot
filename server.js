@@ -107,11 +107,11 @@ addMemory(chatId,"user",message)
 
 const order = getOrder(chatId)
 
+const text = message.trim()
+
 /* ========================= */
 /* HANDLE QUANTITY */
 /* ========================= */
-
-const text = message.trim()
 
 if(order.step === "waiting_qty" && /^[0-9]+$/.test(text)){
 
@@ -132,6 +132,42 @@ ${last.name} × ${qty}
 order.step = "more"
 
 return
+}
+
+/* ========================= */
+/* CALCULATE TOTAL */
+/* ========================= */
+
+if(
+text.includes("كم") ||
+text.includes("بطلع") ||
+text.includes("المجموع")
+){
+
+if(order.items.length > 0){
+
+let total = 0
+
+order.items.forEach(i=>{
+if(i.price && i.qty){
+total += i.price * i.qty
+}
+})
+
+await send(chatId,
+`💰 المجموع الحالي:
+
+${order.items.map(i=>`${i.name} × ${i.qty}`).join("\n")}
+
+المجموع: ${total} دينار
+
+بدك تضيف شي ثاني؟`
+)
+
+return
+
+}
+
 }
 
 /* ========================= */
@@ -191,13 +227,12 @@ const reply = ai.data.choices[0].message.content
 console.log("AI:",reply)
 
 /* ========================= */
-/* DETECT ADDED ITEM */
+/* DETECT ITEM */
 /* ========================= */
 
 if(
 reply.includes("تم إضافة") ||
-reply.includes("تم اضافه") ||
-reply.includes("Added")
+reply.includes("تم اضافه")
 ){
 
 const match = reply.match(/تم إضافة (.*)/)
@@ -207,7 +242,9 @@ if(match){
 const itemName = match[1]
 
 order.items.push({
-name:itemName
+name:itemName,
+qty:0,
+price:0
 })
 
 order.step="waiting_qty"
