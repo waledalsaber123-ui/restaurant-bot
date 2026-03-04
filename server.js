@@ -50,21 +50,33 @@ MEMORY[user].shift()
 /* ========================= */
 /* FIND AREA */
 /* ========================= */
+function normalize(text){
+
+return text
+.toLowerCase()
+.replace(/أ|إ|آ/g,"ا")
+.replace(/ة/g,"ه")
+.replace(/ى/g,"ي")
+.trim()
+
+}
 
 function findArea(text){
 
-const clean = text.toLowerCase().trim()
+const clean = normalize(text)
 
 for(const row of DELIVERY){
 
-const area = row.area.toLowerCase()
+const area = normalize(row.area)
 
-// تطابق كامل
+/* تطابق كامل */
+
 if(clean.includes(area) || area.includes(clean)){
 return row
 }
 
-// تطابق كلمات
+/* تطابق كلمات */
+
 const words = area.split(" ")
 
 for(const w of words){
