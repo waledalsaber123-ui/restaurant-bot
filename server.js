@@ -36,9 +36,6 @@ return ORDERS[user];
 /* WORKING HOURS CHECK */
 /* ========================= */
 
-function restaurantClosed(){
-return false
-}
 
 /* ========================= */
 /* SEND MESSAGE */
