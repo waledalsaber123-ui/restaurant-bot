@@ -108,6 +108,7 @@ return response.data.choices[0].message.content
 app.post("/webhook", async (req,res)=>{
 res.sendStatus(200)
 console.log("CHAT ID:", req.body.senderData?.chatId)
+console.log("FULL DATA:", JSON.stringify(req.body,null,2))
 try{
 
 if(req.body.typeWebhook !== "incomingMessageReceived") return
