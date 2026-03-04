@@ -16,6 +16,7 @@ const SYSTEM_PROMPT = process.env.SYSTEM_PROMPT;
 /* ========================= */
 
 const ORDERS = {};
+const CHAT_MEMORY = {};
 
 function getOrder(user){
 
@@ -29,6 +30,27 @@ step:"start"
 }
 
 return ORDERS[user];
+
+}
+
+/* ========================= */
+/* CHAT MEMORY (14 messages) */
+/* ========================= */
+
+function addMemory(user,role,text){
+
+if(!CHAT_MEMORY[user]){
+CHAT_MEMORY[user] = [];
+}
+
+CHAT_MEMORY[user].push({
+role,
+content:text
+})
+
+if(CHAT_MEMORY[user].length > 14){
+CHAT_MEMORY[user].shift()
+}
 
 }
 
@@ -47,6 +69,8 @@ chatId,
 message
 }
 )
+
+addMemory(chatId,"assistant",message)
 
 }catch(e){
 
@@ -79,15 +103,19 @@ if(chatId.includes("@g.us")) return
 
 console.log("Incoming:",message)
 
+addMemory(chatId,"user",message)
+
 const order = getOrder(chatId)
 
 /* ========================= */
 /* HANDLE QUANTITY */
 /* ========================= */
 
-if(order.step === "waiting_qty" && !isNaN(message)){
+const text = message.trim()
 
-const qty = Number(message)
+if(order.step === "waiting_qty" && /^[0-9]+$/.test(text)){
+
+const qty = Number(text)
 
 const last = order.items[order.items.length-1]
 
@@ -112,12 +140,12 @@ return
 
 if(order.step === "more"){
 
-const text = message.toLowerCase()
+const lower = text.toLowerCase()
 
 if(
-text.includes("بس") ||
-text.includes("خلص") ||
-text.includes("تمام")
+lower.includes("بس") ||
+lower.includes("خلص") ||
+lower.includes("تمام")
 ){
 
 await send(chatId,
@@ -136,20 +164,19 @@ return
 /* AI RESPONSE */
 /* ========================= */
 
-const ai = await axios.post(
-"https://api.openai.com/v1/chat/completions",
-{
-model:"gpt-4o-mini",
-messages:[
+const messages = [
 {
 role:"system",
 content:SYSTEM_PROMPT
 },
-{
-role:"user",
-content:message
-}
+...(CHAT_MEMORY[chatId] || [])
 ]
+
+const ai = await axios.post(
+"https://api.openai.com/v1/chat/completions",
+{
+model:"gpt-4o-mini",
+messages
 },
 {
 headers:{
@@ -208,9 +235,7 @@ console.log("BOT ERROR:",e.response?.data || e.message)
 /* ========================= */
 
 app.get("/",(req,res)=>{
-
 res.send("Restaurant Bot Running 🚀")
-
 })
 
 /* ========================= */
@@ -218,7 +243,5 @@ res.send("Restaurant Bot Running 🚀")
 /* ========================= */
 
 app.listen(PORT,()=>{
-
 console.log(`🚀 Restaurant Bot Running on port ${PORT}`)
-
 })
