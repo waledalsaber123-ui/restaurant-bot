@@ -11,13 +11,12 @@ const OPENAI_KEY = process.env.OPENAI_KEY
 const GREEN_TOKEN = process.env.GREEN_TOKEN
 const ID_INSTANCE = process.env.ID_INSTANCE
 const DELIVERY_SHEET_URL = process.env.DELIVERY_SHEET_URL
-const SYSTEM_PROMPT = process.env.SYSTEM_PROMPT
 
 const ORDER_GROUP_ID = "120363407952234395@g.us"
 
-/* ======================== */
+/* ========================= */
 /* MENU */
-/* ======================== */
+/* ========================= */
 
 const MENU = {
 
@@ -36,19 +35,29 @@ const MENU = {
 
 }
 
-/* ======================== */
+/* ========================= */
+/* OFFERS */
+/* ========================= */
+
+const OFFERS = [
+"🔥 جرب تضيف ديناميت 45سم بس 1 دينار",
+"🔥 كثير ناس يضيفوا صاروخ الشاورما مع الطلب",
+"🔥 قنبلة رمضان 250غ بس 2.25 دينار"
+]
+
+/* ========================= */
 /* MEMORY */
-/* ======================== */
+/* ========================= */
 
 const ORDERS = {}
-const MEMORY = {}
 const CUSTOMERS = {}
+const MEMORY = {}
 
-const MEMORY_LIMIT = 20
+const MEMORY_LIMIT = 10
 
-/* ======================== */
+/* ========================= */
 /* DELIVERY */
-/* ======================== */
+/* ========================= */
 
 let DELIVERY = []
 
@@ -63,9 +72,9 @@ DELIVERY = await csv().fromString(res.data)
 
 }
 
-/* ======================== */
+/* ========================= */
 /* NORMALIZE */
-/* ======================== */
+/* ========================= */
 
 function normalize(text){
 
@@ -76,13 +85,12 @@ return text
 .replace(/أ|إ|آ/g,"ا")
 .replace(/ة/g,"ه")
 .replace(/ى/g,"ي")
-.trim()
 
 }
 
-/* ======================== */
+/* ========================= */
 /* ORDER */
-/* ======================== */
+/* ========================= */
 
 function getOrder(user){
 
@@ -100,9 +108,9 @@ return ORDERS[user]
 
 }
 
-/* ======================== */
+/* ========================= */
 /* CUSTOMER */
-/* ======================== */
+/* ========================= */
 
 function getCustomer(user){
 
@@ -119,9 +127,9 @@ return CUSTOMERS[user]
 
 }
 
-/* ======================== */
+/* ========================= */
 /* FIND AREA */
-/* ======================== */
+/* ========================= */
 
 function findArea(text){
 
@@ -139,18 +147,16 @@ return null
 
 }
 
-/* ======================== */
-/* TOTAL */
-/* ======================== */
+/* ========================= */
+/* CALCULATE */
+/* ========================= */
 
 function calculateTotal(order){
 
 let total = 0
 
 order.items.forEach(i=>{
-
-total += (i.price * i.qty)
-
+total += i.price * i.qty
 })
 
 total += order.deliveryPrice
@@ -159,11 +165,11 @@ return total
 
 }
 
-/* ======================== */
+/* ========================= */
 /* ADD ITEM */
-/* ======================== */
+/* ========================= */
 
-function addItem(order,name,qty=1){
+function addItem(order,name,qty){
 
 if(!MENU[name]) return false
 
@@ -177,9 +183,9 @@ return true
 
 }
 
-/* ======================== */
-/* SEND WHATSAPP */
-/* ======================== */
+/* ========================= */
+/* SEND */
+/* ========================= */
 
 async function send(chatId,message){
 
@@ -193,9 +199,92 @@ message
 
 }
 
-/* ======================== */
+/* ========================= */
+/* AI ORDER UNDERSTANDING */
+/* ========================= */
+
+async function extractOrder(text){
+
+const ai = await axios.post(
+"https://api.openai.com/v1/chat/completions",
+{
+model:"gpt-4o-mini",
+messages:[
+{
+role:"system",
+content:`Extract food order as JSON.
+
+Return format:
+
+{
+items:[
+{name:"item",qty:number}
+]
+}
+
+Only use items from menu.
+
+If none return empty.`
+},
+{
+role:"user",
+content:text
+}
+]
+},
+{
+headers:{
+Authorization:`Bearer ${OPENAI_KEY}`
+}
+}
+)
+
+try{
+return JSON.parse(ai.data.choices[0].message.content)
+}catch{
+return null
+}
+
+}
+
+/* ========================= */
+/* IMAGE UNDERSTANDING */
+/* ========================= */
+
+async function analyzeImage(url){
+
+const ai = await axios.post(
+"https://api.openai.com/v1/chat/completions",
+{
+model:"gpt-4o-mini",
+messages:[
+{
+role:"system",
+content:"Identify food from this menu only."
+},
+{
+role:"user",
+content:[
+{type:"text",text:"what item is this"},
+{type:"image_url",image_url:{url}}
+]
+}
+]
+},
+{
+headers:{
+Authorization:`Bearer ${OPENAI_KEY}`
+}
+}
+)
+
+return ai.data.choices[0].message.content
+
+}
+
+/* ========================= */
 /* SEND ORDER TO GROUP */
-/* ======================== */
+/* ========================= */
 
 async function sendOrderToGroup(order,customer){
 
@@ -224,44 +313,9 @@ await send(ORDER_GROUP_ID,text)
 
 }
 
-/* ======================== */
-/* IMAGE UNDERSTANDING */
-/* ======================== */
-
-async function analyzeImage(url){
-
-const ai = await axios.post(
-"https://api.openai.com/v1/chat/completions",
-{
-model:"gpt-4o-mini",
-messages:[
-{
-role:"system",
-content:"Identify the food item in the image from the menu only."
-},
-{
-role:"user",
-content:[
-{type:"text",text:"what food is this"},
-{type:"image_url",image_url:{url}}
-]
-}
-]
-},
-{
-headers:{
-Authorization:`Bearer ${OPENAI_KEY}`
-}
-}
-)
-
-return ai.data.choices[0].message.content
-
-}
-
-/* ======================== */
+/* ========================= */
 /* WEBHOOK */
-/* ======================== */
+/* ========================= */
 
 app.post("/webhook", async (req,res)=>{
 
@@ -284,9 +338,9 @@ const customer = getCustomer(chatId)
 
 await loadDelivery()
 
-/* ======================== */
+/* ========================= */
 /* AREA */
-/* ======================== */
+/* ========================= */
 
 const area = findArea(message)
 
@@ -303,30 +357,36 @@ return
 
 }
 
-/* ======================== */
-/* ADD ORDER */
-/* ======================== */
+/* ========================= */
+/* ORDER */
+/* ========================= */
 
-for(const item in MENU){
+const result = await extractOrder(message)
 
-if(message.includes(item)){
+if(result && result.items){
 
-addItem(order,item,1)
+for(const item of result.items){
+
+if(MENU[item.name]){
+
+addItem(order,item.name,item.qty || 1)
+
+}
+
+}
 
 await send(chatId,
-`تم إضافة ${item} 👍
+`تم إضافة الطلب 👍
 
-بدك تضيف شي ثاني؟`)
+${OFFERS[Math.floor(Math.random()*OFFERS.length)]}`)
 
 return
 
 }
 
-}
-
-/* ======================== */
+/* ========================= */
 /* PHONE */
-/* ======================== */
+/* ========================= */
 
 const phoneMatch = message.match(/07\d{8}/)
 
@@ -342,9 +402,9 @@ return
 
 }
 
-/* ======================== */
+/* ========================= */
 /* CONFIRM */
-/* ======================== */
+/* ========================= */
 
 if(normalize(message).includes("تأكيد")){
 
@@ -373,16 +433,10 @@ console.log("BOT ERROR",e.message)
 
 })
 
-/* ======================== */
-
 app.get("/",(req,res)=>{
-
 res.send("Restaurant Bot Running")
-
 })
 
 app.listen(PORT,()=>{
-
 console.log("🚀 Bot Running")
-
 })
