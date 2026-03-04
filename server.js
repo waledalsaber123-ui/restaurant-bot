@@ -36,7 +36,7 @@ DELIVERY = await csv().fromString(res.data)
 }
 
 /* ========================= */
-/* MEMORY SYSTEM */
+/* MEMORY */
 /* ========================= */
 
 function addMemory(user,role,text){
@@ -55,7 +55,7 @@ MEMORY[user].shift()
 }
 
 /* ========================= */
-/* TEXT NORMALIZE */
+/* NORMALIZE */
 /* ========================= */
 
 function normalize(text){
@@ -110,11 +110,9 @@ function getOrder(user){
 if(!ORDERS[user]){
 
 ORDERS[user] = {
-
 items:[],
 deliveryPrice:0,
 area:null
-
 }
 
 }
@@ -161,6 +159,33 @@ message
 )
 
 addMemory(chatId,"assistant",message)
+
+}
+
+/* ========================= */
+/* AI FUNCTION */
+/* ========================= */
+
+async function askAI(chatId){
+
+const ai = await axios.post(
+"https://api.openai.com/v1/chat/completions",
+{
+model:"gpt-4o-mini",
+response_format:{type:"json_object"},
+messages:[
+{role:"system",content:SYSTEM_PROMPT},
+...(MEMORY[chatId] || [])
+]
+},
+{
+headers:{
+Authorization:`Bearer ${OPENAI_KEY}`
+}
+}
+)
+
+return JSON.parse(ai.data.choices[0].message.content)
 
 }
 
@@ -244,25 +269,45 @@ return
 /* AI RESPONSE */
 /* ========================= */
 
-const ai = await axios.post(
-"https://api.openai.com/v1/chat/completions",
-{
-model:"gpt-4o-mini",
-messages:[
-{role:"system",content:SYSTEM_PROMPT},
-...(MEMORY[chatId] || [])
+const ai = await askAI(chatId)
+
+/* ADD ITEM */
+
+if(ai.add_item){
+
+order.items.push({
+name: ai.add_item.name,
+price: ai.add_item.price,
+qty: ai.add_item.qty || 1
+})
+
+const suggestions = [
+"🔥 جرب تضيف بطاطا جامبو",
+"🔥 عندنا عرض ديناميت 1 دينار",
+"🔥 تحب تضيف مشروب؟"
 ]
-},
-{
-headers:{
-Authorization:`Bearer ${OPENAI_KEY}`
-}
-}
+
+const random = suggestions[Math.floor(Math.random()*suggestions.length)]
+
+await send(chatId,
+`✅ تم إضافة ${ai.add_item.name}
+
+الكمية: ${ai.add_item.qty || 1}
+
+${random}`
 )
 
-const reply = ai.data.choices[0].message.content
+return
+}
 
-await send(chatId,reply)
+/* NORMAL REPLY */
+
+if(ai.reply){
+
+await send(chatId, ai.reply)
+return
+
+}
 
 }catch(e){
 
