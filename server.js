@@ -13,36 +13,107 @@ const ID_INSTANCE = process.env.ID_INSTANCE;
 const MENU_SHEET_URL = process.env.MENU_SHEET_URL;
 const DELIVERY_SHEET_URL = process.env.DELIVERY_SHEET_URL;
 
-/* ===== جلب المنيو ===== */
-async function getMenuFromSheet() {
-  const response = await axios.get(MENU_SHEET_URL);
-  const data = await csv().fromString(response.data);
+/* ===== الذاكرة ===== */
 
-  let text = "📋 المنيو:\n\n";
+const sessions = {};
+const BOT_STOPPED = {};
 
-  data.forEach(item => {
-    text += `🍔 ${item.Name}\n`;
-    text += `💰 السعر: ${item.Price} دينار\n\n`;
-  });
-
-  return text;
+function getSession(user) {
+  if (!sessions[user]) sessions[user] = [];
+  return sessions[user];
 }
 
-/* ===== جلب التوصيل ===== */
-async function getDeliveryFromSheet() {
-  const response = await axios.get(DELIVERY_SHEET_URL);
-  const data = await csv().fromString(response.data);
+/* ===== كاش البيانات ===== */
 
-  let text = "🚚 أسعار التوصيل:\n\n";
+let MENU_CACHE = null;
+let DELIVERY_CACHE = null;
+let LAST_CACHE = 0;
 
-  data.forEach(item => {
-    text += `📍 ${item.City} : ${item.Price} دينار\n`;
-  });
+async function loadData() {
+  const now = Date.now();
 
-  return text;
+  if (now - LAST_CACHE < 300000 && MENU_CACHE && DELIVERY_CACHE) return;
+
+  const menuRes = await axios.get(MENU_SHEET_URL);
+  const deliveryRes = await axios.get(DELIVERY_SHEET_URL);
+
+  MENU_CACHE = await csv().fromString(menuRes.data);
+  DELIVERY_CACHE = await csv().fromString(deliveryRes.data);
+
+  LAST_CACHE = now;
+}
+
+/* ===== تنظيف النص ===== */
+
+function normalize(text) {
+  return text
+    .toLowerCase()
+    .replace(/أ|إ|آ/g, "ا")
+    .replace(/ة/g, "ه")
+    .replace(/ى/g, "ي")
+    .replace(/[^a-zA-Z0-9\u0600-\u06FF ]/g, "")
+    .trim();
+}
+
+/* ===== مطابقة المنطقة ===== */
+
+function findClosestArea(text) {
+  const clean = normalize(text);
+
+  for (let row of DELIVERY_CACHE) {
+    const area = row.area || row.City;
+    const cleanArea = normalize(area);
+
+    if (clean.includes(cleanArea) || cleanArea.includes(clean)) {
+      return row;
+    }
+  }
+
+  return null;
+}
+
+/* ===== إرسال رسالة ===== */
+
+async function sendMessage(chatId, message) {
+  await axios.post(
+    `https://7103.api.greenapi.com/waInstance${ID_INSTANCE}/sendMessage/${GREEN_TOKEN}`,
+    {
+      chatId,
+      message
+    }
+  );
+}
+
+/* ===== تحليل الصور ===== */
+
+async function analyzeImage(url) {
+  const ai = await axios.post(
+    "https://api.openai.com/v1/chat/completions",
+    {
+      model: "gpt-4o-mini",
+      messages: [
+        {
+          role: "user",
+          content: [
+            { type: "text", text: "اشرح الصورة باختصار" },
+            { type: "image_url", image_url: { url } }
+          ]
+        }
+      ]
+    },
+    {
+      headers: {
+        Authorization: `Bearer ${OPENAI_KEY}`,
+        "Content-Type": "application/json"
+      }
+    }
+  );
+
+  return ai.data.choices[0].message.content;
 }
 
 /* ===== Webhook ===== */
+
 app.post("/webhook", async (req, res) => {
   res.sendStatus(200);
 
@@ -53,61 +124,144 @@ app.post("/webhook", async (req, res) => {
       req.body.messageData?.extendedTextMessageData?.text ||
       req.body.messageData?.textMessageData?.textMessage;
 
+    const imageUrl =
+      req.body.messageData?.imageMessageData?.downloadUrl;
+
     let chatId = req.body.senderData?.chatId;
 
-    if (!message || !chatId) return;
-
-    // تجاهل الجروبات
+    if (!chatId) return;
     if (chatId.includes("@g.us")) return;
 
     if (!chatId.includes("@c.us")) {
       chatId = chatId.replace("c.us", "@c.us");
     }
 
-    if (
-      !OPENAI_KEY ||
-      !GREEN_TOKEN ||
-      !ID_INSTANCE ||
-      !MENU_SHEET_URL ||
-      !DELIVERY_SHEET_URL
-    ) {
-      console.log("Missing ENV variables");
+    await loadData();
+
+    /* ===== أوامر التحكم ===== */
+
+    if (message?.includes("توقف بوت")) {
+      BOT_STOPPED[chatId] = true;
+      await sendMessage(chatId, "⛔ تم إيقاف البوت");
       return;
     }
 
-    const MENU = await getMenuFromSheet();
-    const DELIVERY = await getDeliveryFromSheet();
-    const FULL = MENU + "\n" + DELIVERY;
+    if (message?.includes("كمل بوت")) {
+      BOT_STOPPED[chatId] = false;
+      await sendMessage(chatId, "✅ تم تشغيل البوت");
+      return;
+    }
+
+    if (BOT_STOPPED[chatId]) return;
+
+    /* ===== تحليل الصور ===== */
+
+    if (imageUrl) {
+      const analysis = await analyzeImage(imageUrl);
+      await sendMessage(chatId, analysis);
+      return;
+    }
+
+    if (!message) return;
+
+    const text = message.toLowerCase();
+
+    /* ===== رد المنيو بدون AI ===== */
+
+    if (text.includes("منيو")) {
+      let menuText = "📋 المنيو:\n\n";
+
+      MENU_CACHE.forEach(item => {
+        menuText += `🍔 ${item.Name} - ${item.Price} دينار\n`;
+      });
+
+      await sendMessage(chatId, menuText);
+      return;
+    }
+
+    /* ===== التوصيل ===== */
+
+    const area = findClosestArea(text);
+
+    if (area) {
+      const name = area.area || area.City;
+      const price = area.price || area.Price;
+
+      await sendMessage(
+        chatId,
+        `🚚 التوصيل إلى ${name} يكلف ${price} دينار`
+      );
+
+      return;
+    }
+
+    /* ===== منع الهلوسة ===== */
+
+    const allowedItems = MENU_CACHE.map(i => i.Name).join(", ");
+
+    const SYSTEM = `
+أنت مساعد مطعم Saber Jo Snack في عمان.
+
+قواعد مهمة:
+
+- لا تخترع أصناف
+- لا تخترع أسعار
+- استخدم فقط الأصناف التالية:
+
+${allowedItems}
+
+افهم الأخطاء الإملائية واللهجة الأردنية.
+
+أمثلة:
+زنكر = زنجر
+زنجير = زنجر
+بركر = برجر
+
+الجبيهه = الجبيهة
+
+تأكيد الطلب:
+بس هيك
+هاي بس
+خلص
+تمام
+
+كن مختصر بالرد.
+`;
+
+    const history = getSession(chatId);
+
+    history.push({
+      role: "user",
+      content: message
+    });
+
+    const lastMessages = history.slice(-12);
 
     const ai = await axios.post(
       "https://api.openai.com/v1/chat/completions",
       {
-        model: "gpt-3.5-turbo",
+        model: "gpt-4o-mini",
         messages: [
-          {
-            role: "system",
-            content: `أنت مندوب مطعم. استخدم المعلومات التالية:\n${FULL}`
-          },
-          { role: "user", content: message }
+          { role: "system", content: SYSTEM },
+          ...lastMessages
         ]
       },
       {
         headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${OPENAI_KEY}`
+          Authorization: `Bearer ${OPENAI_KEY}`,
+          "Content-Type": "application/json"
         }
       }
     );
 
     const reply = ai.data.choices[0].message.content;
 
-    await axios.post(
-      `https://7103.api.greenapi.com/waInstance${ID_INSTANCE}/sendMessage/${GREEN_TOKEN}`,
-      {
-        chatId: chatId,
-        message: reply
-      }
-    );
+    history.push({
+      role: "assistant",
+      content: reply
+    });
+
+    await sendMessage(chatId, reply);
 
   } catch (error) {
     console.log("ERROR:", error.response?.data || error.message);
