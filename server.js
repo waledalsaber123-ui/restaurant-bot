@@ -12,6 +12,7 @@ const GREEN_TOKEN = process.env.GREEN_TOKEN;
 const ID_INSTANCE = process.env.ID_INSTANCE;
 const MENU_SHEET_URL = process.env.MENU_SHEET_URL;
 const DELIVERY_SHEET_URL = process.env.DELIVERY_SHEET_URL;
+const SYSTEM_PROMPT = process.env.SYSTEM_PROMPT;
 
 /* ===== الذاكرة ===== */
 
@@ -23,7 +24,7 @@ function getSession(user) {
   return sessions[user];
 }
 
-/* ===== كاش البيانات ===== */
+/* ===== الكاش ===== */
 
 let MENU_CACHE = null;
 let DELIVERY_CACHE = null;
@@ -72,7 +73,7 @@ function findClosestArea(text) {
   return null;
 }
 
-/* ===== إرسال رسالة ===== */
+/* ===== ارسال رسالة ===== */
 
 async function sendMessage(chatId, message) {
   await axios.post(
@@ -118,6 +119,7 @@ app.post("/webhook", async (req, res) => {
   res.sendStatus(200);
 
   try {
+
     if (req.body.typeWebhook !== "incomingMessageReceived") return;
 
     const message =
@@ -138,15 +140,19 @@ app.post("/webhook", async (req, res) => {
 
     await loadData();
 
-    /* ===== أوامر التحكم ===== */
+    if (!message && !imageUrl) return;
 
-    if (message?.includes("توقف بوت")) {
+    const text = normalize(message || "");
+
+    /* ===== اوامر التحكم ===== */
+
+    if (text.includes("توقف بوت") || text.includes("وقف بوت")) {
       BOT_STOPPED[chatId] = true;
       await sendMessage(chatId, "⛔ تم إيقاف البوت");
       return;
     }
 
-    if (message?.includes("كمل بوت")) {
+    if (text.includes("كمل بوت") || text.includes("شغل بوت")) {
       BOT_STOPPED[chatId] = false;
       await sendMessage(chatId, "✅ تم تشغيل البوت");
       return;
@@ -162,13 +168,10 @@ app.post("/webhook", async (req, res) => {
       return;
     }
 
-    if (!message) return;
-
-    const text = message.toLowerCase();
-
-    /* ===== رد المنيو بدون AI ===== */
+    /* ===== عرض المنيو ===== */
 
     if (text.includes("منيو")) {
+
       let menuText = "📋 المنيو:\n\n";
 
       MENU_CACHE.forEach(item => {
@@ -184,6 +187,7 @@ app.post("/webhook", async (req, res) => {
     const area = findClosestArea(text);
 
     if (area) {
+
       const name = area.area || area.City;
       const price = area.price || area.Price;
 
@@ -199,33 +203,20 @@ app.post("/webhook", async (req, res) => {
 
     const allowedItems = MENU_CACHE.map(i => i.Name).join(", ");
 
-    const SYSTEM = `
+    const SYSTEM = SYSTEM_PROMPT || `
 أنت مساعد مطعم Saber Jo Snack في عمان.
 
-قواعد مهمة:
+لا تخترع أصناف أو أسعار.
 
-- لا تخترع أصناف
-- لا تخترع أسعار
-- استخدم فقط الأصناف التالية:
-
+الأصناف المتوفرة:
 ${allowedItems}
 
-افهم الأخطاء الإملائية واللهجة الأردنية.
+افهم الأخطاء الإملائية.
 
-أمثلة:
 زنكر = زنجر
-زنجير = زنجر
 بركر = برجر
 
-الجبيهه = الجبيهة
-
-تأكيد الطلب:
-بس هيك
-هاي بس
-خلص
-تمام
-
-كن مختصر بالرد.
+كن مختصر في الرد.
 `;
 
     const history = getSession(chatId);
@@ -235,7 +226,7 @@ ${allowedItems}
       content: message
     });
 
-    const lastMessages = history.slice(-12);
+    const lastMessages = history.slice(-30);
 
     const ai = await axios.post(
       "https://api.openai.com/v1/chat/completions",
@@ -264,8 +255,11 @@ ${allowedItems}
     await sendMessage(chatId, reply);
 
   } catch (error) {
+
     console.log("ERROR:", error.response?.data || error.message);
+
   }
+
 });
 
 app.get("/", (req, res) => {
