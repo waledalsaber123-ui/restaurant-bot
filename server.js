@@ -19,11 +19,11 @@ const ORDERS = {}
 const MEMORY = {}
 const CUSTOMERS = {}
 
-const MEMORY_LIMIT = 50
+const MEMORY_LIMIT = 40
 
 
 /* ========================= */
-/* LOAD DELIVERY SHEET */
+/* LOAD DELIVERY */
 /* ========================= */
 
 async function loadDelivery(){
@@ -39,7 +39,7 @@ DELIVERY = await csv().fromString(res.data)
 
 
 /* ========================= */
-/* MEMORY SYSTEM */
+/* MEMORY */
 /* ========================= */
 
 function addMemory(user,role,text){
@@ -59,7 +59,7 @@ MEMORY[user].shift()
 
 
 /* ========================= */
-/* TEXT NORMALIZE */
+/* NORMALIZE */
 /* ========================= */
 
 function normalize(text){
@@ -108,7 +108,7 @@ return null
 
 
 /* ========================= */
-/* ORDER MEMORY */
+/* ORDER */
 /* ========================= */
 
 function getOrder(user){
@@ -129,7 +129,7 @@ return ORDERS[user]
 
 
 /* ========================= */
-/* CUSTOMER MEMORY */
+/* CUSTOMER */
 /* ========================= */
 
 function getCustomer(user){
@@ -149,16 +149,14 @@ return CUSTOMERS[user]
 
 
 /* ========================= */
-/* EXTRACT PHONE */
+/* PHONE */
 /* ========================= */
 
 function extractPhone(text){
 
-const phoneMatch = text.match(/07\d{8}/)
+const phone = text.match(/07\d{8}/)
 
-if(phoneMatch){
-return phoneMatch[0]
-}
+if(phone) return phone[0]
 
 return null
 
@@ -166,14 +164,14 @@ return null
 
 
 /* ========================= */
-/* CALCULATE TOTAL */
+/* TOTAL */
 /* ========================= */
 
 function calculateTotal(order){
 
 let total = 0
 
-order.items.forEach(item => {
+order.items.forEach(item=>{
 
 const price = Number(item.price || 0)
 const qty = Number(item.qty || 1)
@@ -190,7 +188,7 @@ return total
 
 
 /* ========================= */
-/* SEND MESSAGE */
+/* SEND */
 /* ========================= */
 
 async function send(chatId,message){
@@ -238,7 +236,7 @@ const customer = getCustomer(chatId)
 
 
 /* ========================= */
-/* PHONE DETECTION */
+/* PHONE */
 /* ========================= */
 
 const phone = extractPhone(message)
@@ -256,7 +254,7 @@ customer.name = name
 await send(chatId,
 `تمام يا ${customer.name || "غالي"} 👍
 
-تم تسجيل رقم الهاتف:
+تم تسجيل الرقم:
 ${customer.phone}`)
 
 return
@@ -265,7 +263,7 @@ return
 
 
 /* ========================= */
-/* AREA DETECTION */
+/* AREA */
 /* ========================= */
 
 const area = findArea(message)
@@ -276,9 +274,8 @@ order.area = area.area
 order.deliveryPrice = Number(area.price)
 
 await send(chatId,
-`🚚 التوصيل إلى ${area.area}
-
-السعر ${area.price} دينار`)
+`🚚 التوصيل: ${area.area}
+السعر: ${area.price} دينار`)
 
 return
 
@@ -286,21 +283,21 @@ return
 
 
 /* ========================= */
-/* TOTAL REQUEST */
+/* TOTAL */
 /* ========================= */
 
 const text = normalize(message)
 
 if(
-text.includes("كم") ||
 text.includes("المجموع") ||
+text.includes("كم") ||
 text.includes("كم بطلع")
 ){
 
 if(!customer.phone){
 
 await send(chatId,
-`أرسل اسمك ورقم الهاتف لتأكيد الطلب
+`أرسل الاسم + رقم الهاتف لتأكيد الطلب
 
 مثال:
 وليد 0791234567`)
@@ -311,16 +308,16 @@ return
 const total = calculateTotal(order)
 
 await send(chatId,
-`💰 ملخص الطلب
+`🧾 ملخص الطلب
 
-${order.items.map(i=>`• ${i.name} × ${i.qty} (${i.price} دينار)`).join("\n")}
+${order.items.map(i=>`• ${i.name} ×${i.qty}`).join("\n")}
 
-🚚 التوصيل: ${order.area || "غير محدد"} (${order.deliveryPrice} دينار)
+🚚 ${order.area || "غير محدد"}
 
-المجموع الكلي: ${total} دينار
+💰 المجموع: ${total} دينار
 
-الاسم: ${customer.name}
-الهاتف: ${customer.phone}`)
+👤 ${customer.name}
+📞 ${customer.phone}`)
 
 return
 
@@ -328,7 +325,7 @@ return
 
 
 /* ========================= */
-/* AI RESPONSE */
+/* AI */
 /* ========================= */
 
 const ai = await axios.post(
@@ -336,7 +333,10 @@ const ai = await axios.post(
 {
 model:"gpt-4o-mini",
 messages:[
-{role:"system",content:SYSTEM_PROMPT},
+{
+role:"system",
+content:SYSTEM_PROMPT
+},
 ...(MEMORY[chatId] || [])
 ]
 },
@@ -372,7 +372,7 @@ res.send("Restaurant Bot Running 🚀")
 
 
 /* ========================= */
-/* START SERVER */
+/* START */
 /* ========================= */
 
 app.listen(PORT,()=>{
