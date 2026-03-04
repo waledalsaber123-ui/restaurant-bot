@@ -12,18 +12,34 @@ const ID_INSTANCE = process.env.ID_INSTANCE;
 const SYSTEM_PROMPT = process.env.SYSTEM_PROMPT;
 
 /* ========================= */
-/* SEND MESSAGE */
+/* CHECK ENV VARIABLES */
+/* ========================= */
+
+if (!OPENAI_KEY || !GREEN_TOKEN || !ID_INSTANCE || !SYSTEM_PROMPT) {
+console.log("⚠️ Missing environment variables");
+}
+
+/* ========================= */
+/* SEND MESSAGE TO WHATSAPP */
 /* ========================= */
 
 async function send(chatId, message) {
 
+try {
+
 await axios.post(
 `https://7103.api.greenapi.com/waInstance${ID_INSTANCE}/sendMessage/${GREEN_TOKEN}`,
 {
-chatId,
-message
+chatId: chatId,
+message: message
 }
-)
+);
+
+} catch (error) {
+
+console.log("GreenAPI ERROR:", error.response?.data || error.message);
+
+}
 
 }
 
@@ -46,12 +62,13 @@ req.body.messageData?.textMessageData?.textMessage;
 let chatId = req.body.senderData?.chatId;
 
 if (!chatId) return;
+
 if (chatId.includes("@g.us")) return;
 
-console.log("Incoming message:", message);
+console.log("📩 Incoming:", message);
 
 /* ========================= */
-/* AI RESPONSE */
+/* OPENAI RESPONSE */
 /* ========================= */
 
 const ai = await axios.post(
@@ -71,14 +88,15 @@ content: message
 },
 {
 headers: {
-Authorization: `Bearer ${OPENAI_KEY}`
+Authorization: `Bearer ${OPENAI_KEY}`,
+"Content-Type": "application/json"
 }
 }
 );
 
 const reply = ai.data.choices[0].message.content;
 
-console.log("AI Reply:", reply);
+console.log("🤖 AI Reply:", reply);
 
 /* ========================= */
 /* SEND TO WHATSAPP */
@@ -88,9 +106,19 @@ await send(chatId, reply);
 
 } catch (error) {
 
-console.log("ERROR:", error.message);
+console.log("❌ BOT ERROR:", error.response?.data || error.message);
 
 }
+
+});
+
+/* ========================= */
+/* ROOT ROUTE */
+/* ========================= */
+
+app.get("/", (req, res) => {
+
+res.send("Restaurant Bot Running 🚀");
 
 });
 
@@ -98,10 +126,8 @@ console.log("ERROR:", error.message);
 /* START SERVER */
 /* ========================= */
 
-app.get("/", (req, res) => {
-res.send("Restaurant Bot Running 🚀");
-});
-
 app.listen(PORT, () => {
-console.log("Restaurant Bot Running 🚀");
+
+console.log(`🚀 Restaurant Bot Running on port ${PORT}`);
+
 });
