@@ -15,7 +15,12 @@ const SYSTEM_PROMPT = process.env.SYSTEM_PROMPT
 
 let DELIVERY = []
 
+const ORDERS = {}
 const MEMORY = {}
+
+/* ========================= */
+/* LOAD DELIVERY SHEET */
+/* ========================= */
 
 async function loadDelivery(){
 
@@ -29,7 +34,7 @@ DELIVERY = await csv().fromString(res.data)
 }
 
 /* ========================= */
-/* MEMORY */
+/* MEMORY SYSTEM */
 /* ========================= */
 
 function addMemory(user,role,text){
@@ -48,8 +53,9 @@ MEMORY[user].shift()
 }
 
 /* ========================= */
-/* FIND AREA */
+/* TEXT NORMALIZE */
 /* ========================= */
+
 function normalize(text){
 
 return text
@@ -61,6 +67,10 @@ return text
 
 }
 
+/* ========================= */
+/* FIND AREA */
+/* ========================= */
+
 function findArea(text){
 
 const clean = normalize(text)
@@ -69,13 +79,13 @@ for(const row of DELIVERY){
 
 const area = normalize(row.area)
 
-/* تطابق كامل */
+/* match full */
 
 if(clean.includes(area) || area.includes(clean)){
 return row
 }
 
-/* تطابق كلمات */
+/* match words */
 
 const words = area.split(" ")
 
@@ -90,7 +100,54 @@ return row
 }
 
 return null
+
 }
+
+/* ========================= */
+/* ORDER MEMORY */
+/* ========================= */
+
+function getOrder(user){
+
+if(!ORDERS[user]){
+
+ORDERS[user] = {
+
+items:[],
+deliveryPrice:0,
+area:null
+
+}
+
+}
+
+return ORDERS[user]
+
+}
+
+/* ========================= */
+/* CALCULATE TOTAL */
+/* ========================= */
+
+function calculateTotal(order){
+
+let total = 0
+
+order.items.forEach(item => {
+
+const price = Number(item.price || 0)
+const qty = Number(item.qty || 1)
+
+total += price * qty
+
+})
+
+total += Number(order.deliveryPrice || 0)
+
+return total
+
+}
+
 /* ========================= */
 /* SEND MESSAGE */
 /* ========================= */
@@ -130,18 +187,55 @@ let chatId = req.body.senderData?.chatId
 if(!chatId) return
 if(chatId.includes("@g.us")) return
 
+addMemory(chatId,"user",message)
+
 await loadDelivery()
 
-addMemory(chatId,"user",message)
+const order = getOrder(chatId)
+
+/* ========================= */
+/* AREA DETECTION */
+/* ========================= */
 
 const area = findArea(message)
 
 if(area){
 
+order.area = area.area
+order.deliveryPrice = Number(area.price)
+
 await send(chatId,
 `🚚 التوصيل إلى ${area.area}
 
 السعر ${area.price} دينار`
+)
+
+return
+
+}
+
+/* ========================= */
+/* TOTAL REQUEST */
+/* ========================= */
+
+const text = normalize(message)
+
+if(
+text.includes("كم") ||
+text.includes("المجموع") ||
+text.includes("كم بطلع")
+){
+
+const total = calculateTotal(order)
+
+await send(chatId,
+`💰 ملخص الطلب
+
+${order.items.map(i=>`• ${i.name} × ${i.qty} (${i.price} دينار)`).join("\n")}
+
+🚚 التوصيل: ${order.area || "غير محدد"} (${order.deliveryPrice} دينار)
+
+المجموع الكلي: ${total} دينار`
 )
 
 return
@@ -174,12 +268,28 @@ await send(chatId,reply)
 
 }catch(e){
 
-console.log("BOT ERROR",e.message)
+console.log("BOT ERROR:",e.response?.data || e.message)
 
 }
 
 })
 
+/* ========================= */
+/* ROOT */
+/* ========================= */
+
+app.get("/",(req,res)=>{
+
+res.send("Restaurant Bot Running 🚀")
+
+})
+
+/* ========================= */
+/* START SERVER */
+/* ========================= */
+
 app.listen(PORT,()=>{
-console.log("Restaurant Bot Running 🚀")
+
+console.log(`🚀 Restaurant Bot Running on port ${PORT}`)
+
 })
