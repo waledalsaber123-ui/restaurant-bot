@@ -17,8 +17,10 @@ let DELIVERY = []
 
 const ORDERS = {}
 const MEMORY = {}
+const CUSTOMERS = {}
 
 const MEMORY_LIMIT = 50
+
 
 /* ========================= */
 /* LOAD DELIVERY SHEET */
@@ -35,8 +37,9 @@ DELIVERY = await csv().fromString(res.data)
 
 }
 
+
 /* ========================= */
-/* MEMORY */
+/* MEMORY SYSTEM */
 /* ========================= */
 
 function addMemory(user,role,text){
@@ -54,8 +57,9 @@ MEMORY[user].shift()
 
 }
 
+
 /* ========================= */
-/* NORMALIZE */
+/* TEXT NORMALIZE */
 /* ========================= */
 
 function normalize(text){
@@ -68,6 +72,7 @@ return text
 .trim()
 
 }
+
 
 /* ========================= */
 /* FIND AREA */
@@ -101,6 +106,7 @@ return null
 
 }
 
+
 /* ========================= */
 /* ORDER MEMORY */
 /* ========================= */
@@ -120,6 +126,44 @@ area:null
 return ORDERS[user]
 
 }
+
+
+/* ========================= */
+/* CUSTOMER MEMORY */
+/* ========================= */
+
+function getCustomer(user){
+
+if(!CUSTOMERS[user]){
+
+CUSTOMERS[user] = {
+name:null,
+phone:null
+}
+
+}
+
+return CUSTOMERS[user]
+
+}
+
+
+/* ========================= */
+/* EXTRACT PHONE */
+/* ========================= */
+
+function extractPhone(text){
+
+const phoneMatch = text.match(/07\d{8}/)
+
+if(phoneMatch){
+return phoneMatch[0]
+}
+
+return null
+
+}
+
 
 /* ========================= */
 /* CALCULATE TOTAL */
@@ -144,6 +188,7 @@ return total
 
 }
 
+
 /* ========================= */
 /* SEND MESSAGE */
 /* ========================= */
@@ -162,32 +207,6 @@ addMemory(chatId,"assistant",message)
 
 }
 
-/* ========================= */
-/* AI FUNCTION */
-/* ========================= */
-
-async function askAI(chatId){
-
-const ai = await axios.post(
-"https://api.openai.com/v1/chat/completions",
-{
-model:"gpt-4o-mini",
-response_format:{type:"json_object"},
-messages:[
-{role:"system",content:SYSTEM_PROMPT},
-...(MEMORY[chatId] || [])
-]
-},
-{
-headers:{
-Authorization:`Bearer ${OPENAI_KEY}`
-}
-}
-)
-
-return JSON.parse(ai.data.choices[0].message.content)
-
-}
 
 /* ========================= */
 /* WEBHOOK */
@@ -215,6 +234,35 @@ addMemory(chatId,"user",message)
 await loadDelivery()
 
 const order = getOrder(chatId)
+const customer = getCustomer(chatId)
+
+
+/* ========================= */
+/* PHONE DETECTION */
+/* ========================= */
+
+const phone = extractPhone(message)
+
+if(phone){
+
+customer.phone = phone
+
+const name = message.replace(phone,"").trim()
+
+if(name.length > 1){
+customer.name = name
+}
+
+await send(chatId,
+`تمام يا ${customer.name || "غالي"} 👍
+
+تم تسجيل رقم الهاتف:
+${customer.phone}`)
+
+return
+
+}
+
 
 /* ========================= */
 /* AREA DETECTION */
@@ -230,12 +278,12 @@ order.deliveryPrice = Number(area.price)
 await send(chatId,
 `🚚 التوصيل إلى ${area.area}
 
-السعر ${area.price} دينار`
-)
+السعر ${area.price} دينار`)
 
 return
 
 }
+
 
 /* ========================= */
 /* TOTAL REQUEST */
@@ -249,6 +297,17 @@ text.includes("المجموع") ||
 text.includes("كم بطلع")
 ){
 
+if(!customer.phone){
+
+await send(chatId,
+`أرسل اسمك ورقم الهاتف لتأكيد الطلب
+
+مثال:
+وليد 0791234567`)
+
+return
+}
+
 const total = calculateTotal(order)
 
 await send(chatId,
@@ -258,56 +317,39 @@ ${order.items.map(i=>`• ${i.name} × ${i.qty} (${i.price} دينار)`).join("
 
 🚚 التوصيل: ${order.area || "غير محدد"} (${order.deliveryPrice} دينار)
 
-المجموع الكلي: ${total} دينار`
-)
+المجموع الكلي: ${total} دينار
+
+الاسم: ${customer.name}
+الهاتف: ${customer.phone}`)
 
 return
 
 }
+
 
 /* ========================= */
 /* AI RESPONSE */
 /* ========================= */
 
-const ai = await askAI(chatId)
-
-/* ADD ITEM */
-
-if(ai.add_item){
-
-order.items.push({
-name: ai.add_item.name,
-price: ai.add_item.price,
-qty: ai.add_item.qty || 1
-})
-
-const suggestions = [
-"🔥 جرب تضيف بطاطا جامبو",
-"🔥 عندنا عرض ديناميت 1 دينار",
-"🔥 تحب تضيف مشروب؟"
+const ai = await axios.post(
+"https://api.openai.com/v1/chat/completions",
+{
+model:"gpt-4o-mini",
+messages:[
+{role:"system",content:SYSTEM_PROMPT},
+...(MEMORY[chatId] || [])
 ]
-
-const random = suggestions[Math.floor(Math.random()*suggestions.length)]
-
-await send(chatId,
-`✅ تم إضافة ${ai.add_item.name}
-
-الكمية: ${ai.add_item.qty || 1}
-
-${random}`
+},
+{
+headers:{
+Authorization:`Bearer ${OPENAI_KEY}`
+}
+}
 )
 
-return
-}
+const reply = ai.data.choices[0].message.content
 
-/* NORMAL REPLY */
-
-if(ai.reply){
-
-await send(chatId, ai.reply)
-return
-
-}
+await send(chatId,reply)
 
 }catch(e){
 
@@ -316,6 +358,7 @@ console.log("BOT ERROR:",e.response?.data || e.message)
 }
 
 })
+
 
 /* ========================= */
 /* ROOT */
@@ -326,6 +369,7 @@ app.get("/",(req,res)=>{
 res.send("Restaurant Bot Running 🚀")
 
 })
+
 
 /* ========================= */
 /* START SERVER */
