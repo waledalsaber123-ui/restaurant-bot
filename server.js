@@ -64,6 +64,8 @@ MEMORY[user].shift()
 
 function normalize(text){
 
+if(!text) return ""
+
 return text
 .toLowerCase()
 .replace(/أ|إ|آ/g,"ا")
@@ -149,10 +151,12 @@ return CUSTOMERS[user]
 
 
 /* ========================= */
-/* PHONE */
+/* EXTRACT PHONE */
 /* ========================= */
 
 function extractPhone(text){
+
+if(!text) return null
 
 const phone = text.match(/07\d{8}/)
 
@@ -188,7 +192,7 @@ return total
 
 
 /* ========================= */
-/* SEND */
+/* SEND MESSAGE */
 /* ========================= */
 
 async function send(chatId,message){
@@ -218,21 +222,36 @@ try{
 
 if(req.body.typeWebhook !== "incomingMessageReceived") return
 
-const message =
+let message =
 req.body.messageData?.extendedTextMessageData?.text ||
-req.body.messageData?.textMessageData?.textMessage
+req.body.messageData?.textMessageData?.textMessage ||
+""
 
 let chatId = req.body.senderData?.chatId
 
 if(!chatId) return
 if(chatId.includes("@g.us")) return
 
-addMemory(chatId,"user",message)
-
 await loadDelivery()
 
 const order = getOrder(chatId)
 const customer = getCustomer(chatId)
+
+
+/* ========================= */
+/* IF IMAGE OR EMPTY */
+/* ========================= */
+
+if(!message){
+
+await send(chatId,
+"أبشر يا غالي 👌\n\nإذا بدك تطلب اكتب اسم الوجبة أو العرض.")
+
+return
+
+}
+
+addMemory(chatId,"user",message)
 
 
 /* ========================= */
@@ -325,7 +344,7 @@ return
 
 
 /* ========================= */
-/* AI */
+/* AI RESPONSE */
 /* ========================= */
 
 const ai = await axios.post(
