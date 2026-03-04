@@ -53,20 +53,32 @@ MEMORY[user].shift()
 
 function findArea(text){
 
-const clean = text.toLowerCase()
+const clean = text.toLowerCase().trim()
 
 for(const row of DELIVERY){
 
-if(clean.includes(row.area.toLowerCase())){
+const area = row.area.toLowerCase()
+
+// تطابق كامل
+if(clean.includes(area) || area.includes(clean)){
+return row
+}
+
+// تطابق كلمات
+const words = area.split(" ")
+
+for(const w of words){
+
+if(w.length > 3 && clean.includes(w)){
 return row
 }
 
 }
 
-return null
-
 }
 
+return null
+}
 /* ========================= */
 /* SEND MESSAGE */
 /* ========================= */
