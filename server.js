@@ -14,258 +14,301 @@ const MENU_SHEET_URL = process.env.MENU_SHEET_URL;
 const DELIVERY_SHEET_URL = process.env.DELIVERY_SHEET_URL;
 const SYSTEM_PROMPT = process.env.SYSTEM_PROMPT;
 
-/* ===== الذاكرة ===== */
+/* ============================= */
+/* ORDER MEMORY */
+/* ============================= */
 
-const sessions = {};
-const BOT_STOPPED = {};
+const ORDERS = {};
 
-function getSession(user) {
-  if (!sessions[user]) sessions[user] = [];
-  return sessions[user];
+function getOrder(user) {
+
+if (!ORDERS[user]) {
+
+ORDERS[user] = {
+items: [],
+step: "start",
+area: null,
+deliveryPrice: 0,
+name: null,
+phone: null
+};
+
 }
 
-/* ===== الكاش ===== */
+return ORDERS[user];
 
-let MENU_CACHE = null;
-let DELIVERY_CACHE = null;
-let LAST_CACHE = 0;
+}
+
+/* ============================= */
+/* CACHE SYSTEM */
+/* ============================= */
+
+let MENU = [];
+let DELIVERY = [];
 
 async function loadData() {
-  const now = Date.now();
 
-  if (now - LAST_CACHE < 300000 && MENU_CACHE && DELIVERY_CACHE) return;
+if (MENU.length === 0) {
 
-  const menuRes = await axios.get(MENU_SHEET_URL);
-  const deliveryRes = await axios.get(DELIVERY_SHEET_URL);
+const res = await axios.get(MENU_SHEET_URL);
+MENU = await csv().fromString(res.data);
 
-  MENU_CACHE = await csv().fromString(menuRes.data);
-  DELIVERY_CACHE = await csv().fromString(deliveryRes.data);
-
-  LAST_CACHE = now;
 }
 
-/* ===== تنظيف النص ===== */
+if (DELIVERY.length === 0) {
+
+const res = await axios.get(DELIVERY_SHEET_URL);
+DELIVERY = await csv().fromString(res.data);
+
+}
+
+}
+
+/* ============================= */
+/* NORMALIZE */
+/* ============================= */
 
 function normalize(text) {
-  return text
-    .toLowerCase()
-    .replace(/أ|إ|آ/g, "ا")
-    .replace(/ة/g, "ه")
-    .replace(/ى/g, "ي")
-    .replace(/[^a-zA-Z0-9\u0600-\u06FF ]/g, "")
-    .trim();
+
+return text
+.toLowerCase()
+.replace(/أ|إ|آ/g, "ا")
+.replace(/ة/g, "ه")
+.replace(/ى/g, "ي");
+
 }
 
-/* ===== مطابقة المنطقة ===== */
+/* ============================= */
+/* AREA MATCH */
+/* ============================= */
 
-function findClosestArea(text) {
-  const clean = normalize(text);
+function findArea(text) {
 
-  for (let row of DELIVERY_CACHE) {
-    const area = row.area || row.City;
-    const cleanArea = normalize(area);
+const clean = normalize(text);
 
-    if (clean.includes(cleanArea) || cleanArea.includes(clean)) {
-      return row;
-    }
-  }
+for (const row of DELIVERY) {
 
-  return null;
+const area = normalize(row.area);
+
+if (clean.includes(area)) {
+
+return row;
+
 }
 
-/* ===== ارسال رسالة ===== */
-
-async function sendMessage(chatId, message) {
-  await axios.post(
-    `https://7103.api.greenapi.com/waInstance${ID_INSTANCE}/sendMessage/${GREEN_TOKEN}`,
-    {
-      chatId,
-      message
-    }
-  );
 }
 
-/* ===== تحليل الصور ===== */
+return null;
 
-async function analyzeImage(url) {
-  const ai = await axios.post(
-    "https://api.openai.com/v1/chat/completions",
-    {
-      model: "gpt-4o-mini",
-      messages: [
-        {
-          role: "user",
-          content: [
-            { type: "text", text: "اشرح الصورة باختصار" },
-            { type: "image_url", image_url: { url } }
-          ]
-        }
-      ]
-    },
-    {
-      headers: {
-        Authorization: `Bearer ${OPENAI_KEY}`,
-        "Content-Type": "application/json"
-      }
-    }
-  );
-
-  return ai.data.choices[0].message.content;
 }
 
-/* ===== Webhook ===== */
+/* ============================= */
+/* SEND MESSAGE */
+/* ============================= */
+
+async function send(chatId, message) {
+
+await axios.post(
+`https://7103.api.greenapi.com/waInstance${ID_INSTANCE}/sendMessage/${GREEN_TOKEN}`,
+{
+chatId,
+message
+}
+);
+
+}
+
+/* ============================= */
+/* WEBHOOK */
+/* ============================= */
 
 app.post("/webhook", async (req, res) => {
-  res.sendStatus(200);
 
-  try {
+res.sendStatus(200);
 
-    if (req.body.typeWebhook !== "incomingMessageReceived") return;
+try {
 
-    const message =
-      req.body.messageData?.extendedTextMessageData?.text ||
-      req.body.messageData?.textMessageData?.textMessage;
+if (req.body.typeWebhook !== "incomingMessageReceived") return;
 
-    const imageUrl =
-      req.body.messageData?.imageMessageData?.downloadUrl;
+const message =
+req.body.messageData?.extendedTextMessageData?.text ||
+req.body.messageData?.textMessageData?.textMessage;
 
-    let chatId = req.body.senderData?.chatId;
+let chatId = req.body.senderData?.chatId;
 
-    if (!chatId) return;
-    if (chatId.includes("@g.us")) return;
+if (!chatId) return;
+if (chatId.includes("@g.us")) return;
 
-    if (!chatId.includes("@c.us")) {
-      chatId = chatId.replace("c.us", "@c.us");
-    }
+await loadData();
 
-    await loadData();
+const order = getOrder(chatId);
+const text = normalize(message);
 
-    if (!message && !imageUrl) return;
+/* ============================= */
+/* MENU MATCH */
+/* ============================= */
 
-    const text = normalize(message || "");
+const item = MENU.find(i =>
+text.includes(normalize(i.Name))
+);
 
-    /* ===== اوامر التحكم ===== */
+/* ============================= */
+/* ADD ITEM */
+/* ============================= */
 
-    if (text.includes("توقف بوت") || text.includes("وقف بوت")) {
-      BOT_STOPPED[chatId] = true;
-      await sendMessage(chatId, "⛔ تم إيقاف البوت");
-      return;
-    }
+if (item) {
 
-    if (text.includes("كمل بوت") || text.includes("شغل بوت")) {
-      BOT_STOPPED[chatId] = false;
-      await sendMessage(chatId, "✅ تم تشغيل البوت");
-      return;
-    }
-
-    if (BOT_STOPPED[chatId]) return;
-
-    /* ===== تحليل الصور ===== */
-
-    if (imageUrl) {
-      const analysis = await analyzeImage(imageUrl);
-      await sendMessage(chatId, analysis);
-      return;
-    }
-
-    /* ===== عرض المنيو ===== */
-
-    if (text.includes("منيو")) {
-
-      let menuText = "📋 المنيو:\n\n";
-
-      MENU_CACHE.forEach(item => {
-        menuText += `🍔 ${item.Name} - ${item.Price} دينار\n`;
-      });
-
-      await sendMessage(chatId, menuText);
-      return;
-    }
-
-    /* ===== التوصيل ===== */
-
-    const area = findClosestArea(text);
-
-    if (area) {
-
-      const name = area.area || area.City;
-      const price = area.price || area.Price;
-
-      await sendMessage(
-        chatId,
-        `🚚 التوصيل إلى ${name} يكلف ${price} دينار`
-      );
-
-      return;
-    }
-
-    /* ===== منع الهلوسة ===== */
-
-    const allowedItems = MENU_CACHE.map(i => i.Name).join(", ");
-
-    const SYSTEM = SYSTEM_PROMPT || `
-أنت مساعد مطعم Saber Jo Snack في عمان.
-
-لا تخترع أصناف أو أسعار.
-
-الأصناف المتوفرة:
-${allowedItems}
-
-افهم الأخطاء الإملائية.
-
-زنكر = زنجر
-بركر = برجر
-
-كن مختصر في الرد.
-`;
-
-    const history = getSession(chatId);
-
-    history.push({
-      role: "user",
-      content: message
-    });
-
-    const lastMessages = history.slice(-30);
-
-    const ai = await axios.post(
-      "https://api.openai.com/v1/chat/completions",
-      {
-        model: "gpt-4o-mini",
-        messages: [
-          { role: "system", content: SYSTEM },
-          ...lastMessages
-        ]
-      },
-      {
-        headers: {
-          Authorization: `Bearer ${OPENAI_KEY}`,
-          "Content-Type": "application/json"
-        }
-      }
-    );
-
-    const reply = ai.data.choices[0].message.content;
-
-    history.push({
-      role: "assistant",
-      content: reply
-    });
-
-    await sendMessage(chatId, reply);
-
-  } catch (error) {
-
-    console.log("ERROR:", error.response?.data || error.message);
-
-  }
-
+order.items.push({
+name: item.Name,
+price: Number(item.Price)
 });
 
-app.get("/", (req, res) => {
-  res.send("Bot running 🚀");
+order.step = "confirm";
+
+await send(chatId,
+`👌 تم إضافة ${item.Name}
+
+بدك تضيف شي ثاني ولا بس هيك؟`
+);
+
+return;
+
+}
+
+/* ============================= */
+/* FINISH ITEMS */
+/* ============================= */
+
+if (order.step === "confirm" &&
+(text.includes("بس") ||
+text.includes("خلص") ||
+text.includes("تمام"))) {
+
+order.step = "delivery";
+
+await send(chatId,
+"👍 الطلب توصيل ولا استلام؟"
+);
+
+return;
+
+}
+
+/* ============================= */
+/* DELIVERY */
+/* ============================= */
+
+if (order.step === "delivery" &&
+text.includes("توصيل")) {
+
+order.step = "area";
+
+await send(chatId,
+"لوين التوصيل يا غالي؟"
+);
+
+return;
+
+}
+
+/* ============================= */
+/* AREA */
+/* ============================= */
+
+if (order.step === "area") {
+
+const area = findArea(message);
+
+if (area) {
+
+order.area = area.area;
+order.deliveryPrice = Number(area.price);
+
+order.step = "customer";
+
+await send(chatId,
+`🚚 التوصيل إلى ${area.area}
+
+السعر ${area.price} دينار
+
+أرسل اسمك ورقم الهاتف`
+);
+
+return;
+
+}
+
+}
+
+/* ============================= */
+/* CUSTOMER */
+/* ============================= */
+
+if (order.step === "customer") {
+
+const parts = message.split(" ");
+
+order.name = parts[0];
+order.phone = parts[1];
+
+const itemsTotal =
+order.items.reduce((a,b)=>a+b.price,0);
+
+const total =
+itemsTotal + order.deliveryPrice;
+
+await send(chatId,
+`أبشر 👌
+
+ملخص الطلب:
+
+${order.items.map(i=>"🍔 "+i.name).join("\n")}
+
+🚚 ${order.area}
+
+💰 المجموع ${total} دينار
+
+هل نثبت الطلب؟`
+);
+
+order.step = "confirm_final";
+
+return;
+
+}
+
+/* ============================= */
+/* AI REPLY */
+/* ============================= */
+
+const ai = await axios.post(
+"https://api.openai.com/v1/chat/completions",
+{
+model: "gpt-4o-mini",
+messages: [
+{ role: "system", content: SYSTEM_PROMPT },
+{ role: "user", content: message }
+]
+},
+{
+headers: {
+Authorization: `Bearer ${OPENAI_KEY}`
+}
+}
+);
+
+const reply = ai.data.choices[0].message.content;
+
+await send(chatId, reply);
+
+} catch (err) {
+
+console.log(err.message);
+
+}
+
 });
 
 app.listen(PORT, () => {
-  console.log("Server running on port", PORT);
+console.log("Restaurant AI Bot Running 🚀");
 });
