@@ -79,26 +79,6 @@ if(chatId.includes("@g.us")) return
 
 console.log("Incoming:",message)
 
-/* ========================= */
-/* CHECK WORKING HOURS */
-/* ========================= */
-
-if(restaurantClosed()){
-
-await send(chatId,
-`⛔ المطعم مغلق حالياً
-
-أوقات العمل من 2 عصراً حتى 3:30 فجراً بسبب رمضان.
-
-ما عنا فروع غير شارع الجامعة عمان.`)
-
-return
-}
-
-/* ========================= */
-/* ORDER MEMORY */
-/* ========================= */
-
 const order = getOrder(chatId)
 
 /* ========================= */
@@ -153,7 +133,7 @@ return
 }
 
 /* ========================= */
-/* AI UNDERSTANDING */
+/* AI RESPONSE */
 /* ========================= */
 
 const ai = await axios.post(
