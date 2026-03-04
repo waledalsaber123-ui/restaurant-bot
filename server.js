@@ -39,9 +39,16 @@ return ORDERS[user];
 function restaurantClosed(){
 
 const now = new Date()
-const hour = now.getHours()
 
-// الدوام من 2 ظهراً (14) حتى 3:30 فجراً
+// تحويل الوقت إلى توقيت عمّان
+const jordanTime = new Date(
+now.toLocaleString("en-US",{timeZone:"Asia/Amman"})
+)
+
+const hour = jordanTime.getHours()
+
+// الدوام في رمضان
+// 2 ظهراً → 3:30 فجراً
 
 if(hour >= 3 && hour < 14){
 return true
@@ -50,6 +57,7 @@ return true
 return false
 
 }
+
 
 /* ========================= */
 /* SEND MESSAGE */
