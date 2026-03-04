@@ -14,6 +14,7 @@ const DELIVERY_SHEET_URL = process.env.DELIVERY_SHEET_URL
 
 const ORDER_GROUP_ID = "120363407952234395@g.us"
 
+
 /* ========================= */
 /* MENU */
 /* ========================= */
@@ -35,15 +36,19 @@ const MENU = {
 
 }
 
+
 /* ========================= */
 /* OFFERS */
 /* ========================= */
 
 const OFFERS = [
+
 "🔥 جرب تضيف ديناميت 45سم بس 1 دينار",
 "🔥 كثير ناس يضيفوا صاروخ الشاورما مع الطلب",
 "🔥 قنبلة رمضان 250غ بس 2.25 دينار"
+
 ]
+
 
 /* ========================= */
 /* MEMORY */
@@ -51,15 +56,13 @@ const OFFERS = [
 
 const ORDERS = {}
 const CUSTOMERS = {}
-const MEMORY = {}
-
-const MEMORY_LIMIT = 10
-
-/* ========================= */
-/* DELIVERY */
-/* ========================= */
 
 let DELIVERY = []
+
+
+/* ========================= */
+/* LOAD DELIVERY */
+/* ========================= */
 
 async function loadDelivery(){
 
@@ -71,6 +74,7 @@ DELIVERY = await csv().fromString(res.data)
 }
 
 }
+
 
 /* ========================= */
 /* NORMALIZE */
@@ -88,8 +92,9 @@ return text
 
 }
 
+
 /* ========================= */
-/* ORDER */
+/* ORDER MEMORY */
 /* ========================= */
 
 function getOrder(user){
@@ -107,6 +112,7 @@ deliveryPrice:0
 return ORDERS[user]
 
 }
+
 
 /* ========================= */
 /* CUSTOMER */
@@ -126,6 +132,47 @@ phone:null
 return CUSTOMERS[user]
 
 }
+
+
+/* ========================= */
+/* ADD ITEM */
+/* ========================= */
+
+function addItem(order,name,qty=1){
+
+if(!MENU[name]) return false
+
+order.items.push({
+name,
+qty,
+price:MENU[name]
+})
+
+return true
+
+}
+
+
+/* ========================= */
+/* TOTAL */
+/* ========================= */
+
+function calculateTotal(order){
+
+let total = 0
+
+order.items.forEach(i=>{
+
+total += i.price * i.qty
+
+})
+
+total += order.deliveryPrice
+
+return total
+
+}
+
 
 /* ========================= */
 /* FIND AREA */
@@ -147,44 +194,9 @@ return null
 
 }
 
-/* ========================= */
-/* CALCULATE */
-/* ========================= */
-
-function calculateTotal(order){
-
-let total = 0
-
-order.items.forEach(i=>{
-total += i.price * i.qty
-})
-
-total += order.deliveryPrice
-
-return total
-
-}
 
 /* ========================= */
-/* ADD ITEM */
-/* ========================= */
-
-function addItem(order,name,qty){
-
-if(!MENU[name]) return false
-
-order.items.push({
-name,
-qty,
-price:MENU[name]
-})
-
-return true
-
-}
-
-/* ========================= */
-/* SEND */
+/* SEND MESSAGE */
 /* ========================= */
 
 async function send(chatId,message){
@@ -199,11 +211,14 @@ message
 
 }
 
+
 /* ========================= */
 /* AI ORDER UNDERSTANDING */
 /* ========================= */
 
 async function extractOrder(text){
+
+try{
 
 const ai = await axios.post(
 "https://api.openai.com/v1/chat/completions",
@@ -222,9 +237,17 @@ items:[
 ]
 }
 
-Only use items from menu.
-
-If none return empty.`
+Menu items:
+ديناميت
+صاروخ الشاورما
+قنبلة رمضان
+خابور كباب
+وجبة زنجر
+وجبة سكالوب
+وجبة برجر
+بطاطا
+بطاطا عائلي
+بطاطا جامبو`
 },
 {
 role:"user",
@@ -239,16 +262,19 @@ Authorization:`Bearer ${OPENAI_KEY}`
 }
 )
 
-try{
 return JSON.parse(ai.data.choices[0].message.content)
+
 }catch{
+
 return null
+
 }
 
 }
+
 
 /* ========================= */
-/* IMAGE UNDERSTANDING */
+/* IMAGE ANALYSIS */
 /* ========================= */
 
 async function analyzeImage(url){
@@ -260,13 +286,25 @@ model:"gpt-4o-mini",
 messages:[
 {
 role:"system",
-content:"Identify food from this menu only."
+content:`Identify the food item from the menu.
+
+Return only the name.
+
+Menu:
+ديناميت
+صاروخ الشاورما
+قنبلة رمضان
+خابور كباب
+وجبة زنجر
+وجبة سكالوب
+وجبة برجر
+بطاطا`
 },
 {
 role:"user",
 content:[
 {type:"text",text:"what item is this"},
-{type:"image_url",image_url:{url}}
+{type:"image_url",image_url:{url:url}}
 ]
 }
 ]
@@ -278,9 +316,10 @@ Authorization:`Bearer ${OPENAI_KEY}`
 }
 )
 
-return ai.data.choices[0].message.content
+return ai.data.choices[0].message.content.trim()
 
 }
+
 
 /* ========================= */
 /* SEND ORDER TO GROUP */
@@ -313,6 +352,7 @@ await send(ORDER_GROUP_ID,text)
 
 }
 
+
 /* ========================= */
 /* WEBHOOK */
 /* ========================= */
@@ -329,14 +369,50 @@ const chatId = req.body.senderData?.chatId
 
 if(!chatId) return
 
-const message =
+
+let message =
 req.body.messageData?.textMessageData?.textMessage ||
-req.body.messageData?.extendedTextMessageData?.text
+req.body.messageData?.extendedTextMessageData?.text ||
+""
+
+
+let imageUrl = null
+
+if(req.body.messageData?.fileMessageData){
+
+imageUrl = req.body.messageData.fileMessageData.downloadUrl
+
+}
+
 
 const order = getOrder(chatId)
 const customer = getCustomer(chatId)
 
 await loadDelivery()
+
+
+/* ========================= */
+/* IMAGE */
+/* ========================= */
+
+if(imageUrl){
+
+const item = await analyzeImage(imageUrl)
+
+if(MENU[item]){
+
+addItem(order,item,1)
+
+await send(chatId,
+`تم إضافة ${item} 👍
+
+${OFFERS[Math.floor(Math.random()*OFFERS.length)]}`)
+
+}
+
+return
+}
+
 
 /* ========================= */
 /* AREA */
@@ -357,8 +433,9 @@ return
 
 }
 
+
 /* ========================= */
-/* ORDER */
+/* ORDER TEXT */
 /* ========================= */
 
 const result = await extractOrder(message)
@@ -384,6 +461,7 @@ return
 
 }
 
+
 /* ========================= */
 /* PHONE */
 /* ========================= */
@@ -401,6 +479,7 @@ await send(chatId,"تم تسجيل الرقم 👍")
 return
 
 }
+
 
 /* ========================= */
 /* CONFIRM */
@@ -427,16 +506,22 @@ return
 
 }catch(e){
 
-console.log("BOT ERROR",e.message)
+console.log("BOT ERROR:",e.response?.data || e.message)
 
 }
 
 })
 
+
 app.get("/",(req,res)=>{
+
 res.send("Restaurant Bot Running")
+
 })
 
+
 app.listen(PORT,()=>{
+
 console.log("🚀 Bot Running")
+
 })
