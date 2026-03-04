@@ -18,6 +18,8 @@ let DELIVERY = []
 const ORDERS = {}
 const MEMORY = {}
 
+const MEMORY_LIMIT = 50
+
 /* ========================= */
 /* LOAD DELIVERY SHEET */
 /* ========================= */
@@ -46,7 +48,7 @@ role,
 content:text
 })
 
-if(MEMORY[user].length > 14){
+if(MEMORY[user].length > MEMORY_LIMIT){
 MEMORY[user].shift()
 }
 
@@ -79,13 +81,9 @@ for(const row of DELIVERY){
 
 const area = normalize(row.area)
 
-/* match full */
-
 if(clean.includes(area) || area.includes(clean)){
 return row
 }
-
-/* match words */
 
 const words = area.split(" ")
 
