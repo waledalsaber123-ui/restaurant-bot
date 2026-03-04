@@ -13,43 +13,36 @@ const ID_INSTANCE = process.env.ID_INSTANCE;
 const MENU_SHEET_URL = process.env.MENU_SHEET_URL;
 const DELIVERY_SHEET_URL = process.env.DELIVERY_SHEET_URL;
 
-/* ===========================
-   جلب المنيو من Google Sheet
-=========================== */
+/* ===== جلب المنيو ===== */
 async function getMenuFromSheet() {
   const response = await axios.get(MENU_SHEET_URL);
   const data = await csv().fromString(response.data);
 
-  let menuText = "📋 المنيو:\n\n";
+  let text = "📋 المنيو:\n\n";
 
   data.forEach(item => {
-    menuText += `🍔 ${item.Name}\n`;
-    menuText += `📝 ${item.Description}\n`;
-    menuText += `💰 السعر: ${item.Price} دينار\n\n`;
+    text += `🍔 ${item.Name}\n`;
+    text += `💰 السعر: ${item.Price} دينار\n\n`;
   });
 
-  return menuText;
+  return text;
 }
 
-/* ===========================
-   جلب اسعار التوصيل
-=========================== */
+/* ===== جلب التوصيل ===== */
 async function getDeliveryFromSheet() {
   const response = await axios.get(DELIVERY_SHEET_URL);
   const data = await csv().fromString(response.data);
 
-  let deliveryText = "🚚 أسعار التوصيل:\n\n";
+  let text = "🚚 أسعار التوصيل:\n\n";
 
   data.forEach(item => {
-    deliveryText += `📍 ${item.City} : ${item.Price} دينار\n`;
+    text += `📍 ${item.City} : ${item.Price} دينار\n`;
   });
 
-  return deliveryText;
+  return text;
 }
 
-/* ===========================
-   Webhook
-=========================== */
+/* ===== Webhook ===== */
 app.post("/webhook", async (req, res) => {
   res.sendStatus(200);
 
@@ -64,16 +57,9 @@ app.post("/webhook", async (req, res) => {
 
     if (!message || !chatId) return;
 
-    console.log("📩 Message:", message);
-    console.log("👤 ChatID:", chatId);
+    // تجاهل الجروبات
+    if (chatId.includes("@g.us")) return;
 
-    // ❌ تجاهل الجروبات
-    if (chatId.includes("@g.us")) {
-      console.log("🚫 Group detected - ignoring");
-      return;
-    }
-
-    // تصحيح chatId لو ناقص @
     if (!chatId.includes("@c.us")) {
       chatId = chatId.replace("c.us", "@c.us");
     }
@@ -85,16 +71,14 @@ app.post("/webhook", async (req, res) => {
       !MENU_SHEET_URL ||
       !DELIVERY_SHEET_URL
     ) {
-      console.log("❌ Missing ENV variables");
+      console.log("Missing ENV variables");
       return;
     }
 
-    /* ===== جلب البيانات من الشيت ===== */
     const MENU = await getMenuFromSheet();
     const DELIVERY = await getDeliveryFromSheet();
-    const FULL_MENU = MENU + "\n" + DELIVERY;
+    const FULL = MENU + "\n" + DELIVERY;
 
-    /* ===== طلب OpenAI ===== */
     const ai = await axios.post(
       "https://api.openai.com/v1/chat/completions",
       {
@@ -102,10 +86,7 @@ app.post("/webhook", async (req, res) => {
         messages: [
           {
             role: "system",
-            content: `أنت مندوب مبيعات مطعم محترف.
-استخدم البيانات التالية للرد على الزبائن:
-
-${FULL_MENU}`
+            content: `أنت مندوب مطعم. استخدم المعلومات التالية:\n${FULL}`
           },
           { role: "user", content: message }
         ]
@@ -120,8 +101,7 @@ ${FULL_MENU}`
 
     const reply = ai.data.choices[0].message.content;
 
-    /* ===== ارسال عبر Green API ===== */
-    const greenResponse = await axios.post(
+    await axios.post(
       `https://7103.api.greenapi.com/waInstance${ID_INSTANCE}/sendMessage/${GREEN_TOKEN}`,
       {
         chatId: chatId,
@@ -129,22 +109,15 @@ ${FULL_MENU}`
       }
     );
 
-    console.log("✅ Message sent:", greenResponse.data);
-
   } catch (error) {
-    console.log("❌ ERROR STATUS:", error.response?.status);
-    console.log("❌ ERROR DATA:", error.response?.data);
-    console.log("❌ ERROR MESSAGE:", error.message);
+    console.log("ERROR:", error.response?.data || error.message);
   }
 });
 
-/* ===========================
-   Root
-=========================== */
 app.get("/", (req, res) => {
-  res.send("Restaurant bot running 🚀");
+  res.send("Bot running 🚀");
 });
 
 app.listen(PORT, () => {
-  console.log(`🚀 Server running on port ${PORT}`);
+  console.log("Server running on port", PORT);
 });
