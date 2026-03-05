@@ -11,173 +11,43 @@ const OPENAI_KEY = process.env.OPENAI_KEY
 const GREEN_TOKEN = process.env.GREEN_TOKEN
 const ID_INSTANCE = process.env.ID_INSTANCE
 const DELIVERY_SHEET_URL = process.env.DELIVERY_SHEET_URL
-const SYSTEM_PROMPT = process.env.SYSTEM_PROMPT
-const ORDER_GROUP_ID = process.env.ORDER_GROUP_ID
 
-let DELIVERY = []
+/* ======================= */
+/* MENU */
+/* ======================= */
+
+const MENU = {
+"ديناميت":1,
+"صاروخ الشاورما":1.5,
+"قنبلة رمضان":2.25,
+"خابور كباب":2,
+"وجبة زنجر":2,
+"وجبة سكالوب":2,
+"وجبة برجر":2,
+"بطاطا":1,
+"بطاطا عائلي":3,
+"بطاطا جامبو":6
+}
+
+/* ======================= */
+/* IMAGES */
+/* ======================= */
+
+const MENU_IMAGES = {
+"خابور كباب":"https://i.imgur.com/lhWRxlO.jpg",
+"وجبة زنجر":"https://i.imgur.com/wgjBv86.jpg",
+"وجبة برجر":"https://i.imgur.com/9S1VGKX.jpg",
+"وجبة سكالوب":"https://i.imgur.com/CEdT5cx.jpg",
+"صاروخ الشاورما":"https://i.imgur.com/KpajIR8.jpg"
+}
+
+/* ======================= */
 
 const ORDERS = {}
-const CUSTOMERS = {}
-const MEMORY = {}
-
-const MEMORY_LIMIT = 30
-
+let DELIVERY = []
 
 /* ======================= */
-/* LOAD DELIVERY */
-/* ======================= */
-
-async function loadDelivery(){
-
-if(DELIVERY.length === 0){
-
-const res = await axios.get(DELIVERY_SHEET_URL)
-DELIVERY = await csv().fromString(res.data)
-
-}
-
-}
-
-
-/* ======================= */
-/* MEMORY */
-/* ======================= */
-
-function addMemory(user,role,text){
-
-if(!MEMORY[user]) MEMORY[user] = []
-
-MEMORY[user].push({role,content:text})
-
-if(MEMORY[user].length > MEMORY_LIMIT){
-MEMORY[user].shift()
-}
-
-}
-
-
-/* ======================= */
-/* NORMALIZE */
-/* ======================= */
-
-function normalize(text){
-
-if(!text) return ""
-
-return text
-.toLowerCase()
-.replace(/أ|إ|آ/g,"ا")
-.replace(/ة/g,"ه")
-.replace(/ى/g,"ي")
-.trim()
-
-}
-
-
-/* ======================= */
-/* FIND AREA */
-/* ======================= */
-
-function findArea(text){
-
-const clean = normalize(text)
-
-for(const row of DELIVERY){
-
-const area = normalize(row.area)
-
-if(clean.includes(area) || area.includes(clean)){
-return row
-}
-
-}
-
-return null
-
-}
-
-
-/* ======================= */
-/* ORDER */
-/* ======================= */
-
-function getOrder(user){
-
-if(!ORDERS[user]){
-
-ORDERS[user] = {
-items:[],
-area:null,
-deliveryPrice:0
-}
-
-}
-
-return ORDERS[user]
-
-}
-
-
-/* ======================= */
-/* CUSTOMER */
-/* ======================= */
-
-function getCustomer(user){
-
-if(!CUSTOMERS[user]){
-
-CUSTOMERS[user] = {
-name:null,
-phone:null
-}
-
-}
-
-return CUSTOMERS[user]
-
-}
-
-
-/* ======================= */
-/* PHONE */
-/* ======================= */
-
-function extractPhone(text){
-
-if(!text) return null
-
-const match = text.match(/07\d{8}/)
-
-if(match) return match[0]
-
-return null
-
-}
-
-
-/* ======================= */
-/* TOTAL */
-/* ======================= */
-
-function calculateTotal(order){
-
-let total = 0
-
-order.items.forEach(i=>{
-
-total += (Number(i.price)||0) * (Number(i.qty)||1)
-
-})
-
-total += Number(order.deliveryPrice||0)
-
-return total
-
-}
-
-
-/* ======================= */
-/* SEND WHATSAPP */
+/* SEND MESSAGE */
 /* ======================= */
 
 async function send(chatId,message){
@@ -187,73 +57,130 @@ await axios.post(
 {
 chatId,
 message
-}
-)
-
-addMemory(chatId,"assistant",message)
+})
 
 }
-
 
 /* ======================= */
-/* SEND ORDER TO GROUP */
+/* SEND IMAGE */
 /* ======================= */
 
-async function sendOrderToGroup(order,customer){
+async function sendImage(chatId,url,caption){
 
-const total = calculateTotal(order)
-
-const items = order.items
-.map(i=>`• ${i.name} ×${i.qty}`)
-.join("\n")
-
-const text =
-
-`🆕 طلب جديد
-
-👤 ${customer.name}
-📞 ${customer.phone}
-
-📦 الطلب:
-${items}
-
-🚚 المنطقة: ${order.area}
-
-💰 التوصيل: ${order.deliveryPrice} دينار
-💵 المجموع: ${total} دينار`
-
-await send(ORDER_GROUP_ID,text)
+await axios.post(
+`https://7103.api.greenapi.com/waInstance${ID_INSTANCE}/sendFileByUrl/${GREEN_TOKEN}`,
+{
+chatId,
+urlFile:url,
+fileName:"menu.jpg",
+caption
+})
 
 }
 
+/* ======================= */
+/* LOAD DELIVERY */
+/* ======================= */
+
+async function loadDelivery(){
+
+if(DELIVERY.length>0) return
+
+const res = await axios.get(DELIVERY_SHEET_URL)
+
+DELIVERY = await csv().fromString(res.data)
+
+}
+
+/* ======================= */
+/* ORDER */
+/* ======================= */
+
+function getOrder(user){
+
+if(!ORDERS[user]){
+
+ORDERS[user]={items:[],area:null,delivery:0}
+
+}
+
+return ORDERS[user]
+
+}
+
+/* ======================= */
+
+function addItem(order,name,qty){
+
+order.items.push({name,qty,price:MENU[name]})
+
+}
+
+/* ======================= */
+
+function total(order){
+
+let t=0
+
+order.items.forEach(i=>{
+t+=i.price*i.qty
+})
+
+t+=order.delivery
+
+return t
+
+}
 
 /* ======================= */
 /* AI */
 /* ======================= */
 
-async function askAI(chatId,message){
+async function extractOrder(text){
+
+try{
 
 const ai = await axios.post(
 "https://api.openai.com/v1/chat/completions",
 {
 model:"gpt-4o-mini",
 messages:[
-{role:"system",content:SYSTEM_PROMPT},
-...(MEMORY[chatId]||[]),
-{role:"user",content:message}
+{
+role:"system",
+content:`Extract order JSON
+
+Return:
+{items:[{name:"",qty:1}]}
+
+Menu:
+ديناميت
+صاروخ الشاورما
+قنبلة رمضان
+خابور كباب
+وجبة زنجر
+وجبة سكالوب
+وجبة برجر
+بطاطا
+بطاطا عائلي
+بطاطا جامبو`
+},
+{role:"user",content:text}
 ]
 },
 {
-headers:{
-Authorization:`Bearer ${OPENAI_KEY}`
-}
+headers:{Authorization:`Bearer ${OPENAI_KEY}`}
 }
 )
 
-return ai.data.choices[0].message.content
+return JSON.parse(ai.data.choices[0].message.content)
+
+}catch{
+
+return null
 
 }
 
+}
 
 /* ======================= */
 /* WEBHOOK */
@@ -261,128 +188,106 @@ return ai.data.choices[0].message.content
 
 app.post("/webhook", async (req,res)=>{
 
+console.log("NEW MESSAGE")
+console.log(JSON.stringify(req.body,null,2))
+
 res.sendStatus(200)
 
 try{
 
-if(req.body.typeWebhook !== "incomingMessageReceived") return
-
-const message =
-req.body.messageData?.extendedTextMessageData?.text ||
-req.body.messageData?.textMessageData?.textMessage ||
-""
-
 const chatId = req.body.senderData?.chatId
 
 if(!chatId) return
-if(chatId.includes("@g.us")) return
+
+if(chatId.endsWith("@g.us")) return
+
+const message =
+req.body.messageData?.textMessageData?.textMessage ||
+req.body.messageData?.extendedTextMessageData?.text ||
+""
+
+const order = getOrder(chatId)
 
 await loadDelivery()
 
-const order = getOrder(chatId)
-const customer = getCustomer(chatId)
-
-addMemory(chatId,"user",message)
-
-
 /* ======================= */
-/* PHONE */
+/* MENU REQUEST */
 /* ======================= */
 
-const phone = extractPhone(message)
+if(message.includes("منيو")){
 
-if(phone){
+for(const item in MENU_IMAGES){
 
-customer.phone = phone
+await sendImage(chatId,MENU_IMAGES[item],item)
 
-const name = message.replace(phone,"").trim()
-
-if(name) customer.name = name
-
-await send(chatId,"تم تسجيل رقم الهاتف 👍")
+}
 
 return
 
 }
-
 
 /* ======================= */
 /* AREA */
 /* ======================= */
 
-const area = findArea(message)
+for(const row of DELIVERY){
 
-if(area){
+if(message.includes(row.area)){
 
-order.area = area.area
-order.deliveryPrice = Number(area.price)
+order.area=row.area
+order.delivery=Number(row.price)
 
-await send(chatId,
-`🚚 التوصيل: ${area.area}
-💰 السعر: ${area.price} دينار`)
+await send(chatId,"تم تحديد التوصيل "+row.area)
 
 return
 
 }
 
+}
 
 /* ======================= */
-/* CONFIRM ORDER */
+/* ORDER */
 /* ======================= */
 
-if(normalize(message).includes("تأكيد")){
+const result = await extractOrder(message)
 
-if(!customer.name || !customer.phone){
+if(result && result.items){
 
-await send(chatId,
-"أرسل الاسم + رقم الهاتف لتأكيد الطلب")
+for(const item of result.items){
+
+if(MENU[item.name]){
+
+addItem(order,item.name,item.qty||1)
+
+if(MENU_IMAGES[item.name]){
+
+await sendImage(chatId,MENU_IMAGES[item.name],item.name)
+
+}
+
+}
+
+}
+
+await send(chatId,"تم إضافة الطلب")
+
+await send(chatId,"المجموع: "+total(order)+" دينار")
 
 return
 
 }
 
-await sendOrderToGroup(order,customer)
-
-await send(chatId,
-"✅ تم تأكيد الطلب. شكراً لك 🙏")
-
-return
-
-}
-
-
-/* ======================= */
-/* TOTAL */
 /* ======================= */
 
-if(normalize(message).includes("المجموع")){
-
-const total = calculateTotal(order)
-
-await send(chatId,
-`💰 المجموع: ${total} دينار`)
-
-return
-
-}
-
-
-/* ======================= */
-/* AI RESPONSE */
-/* ======================= */
-
-const reply = await askAI(chatId,message)
-
-await send(chatId,reply)
+await send(chatId,"مرحبا 👋 اكتب منيو لرؤية الوجبات")
 
 }catch(e){
 
-console.log("BOT ERROR:",e.response?.data || e.message)
+console.log("ERROR",e.message)
 
 }
 
 })
-
 
 /* ======================= */
 /* ROOT */
@@ -390,17 +295,14 @@ console.log("BOT ERROR:",e.response?.data || e.message)
 
 app.get("/",(req,res)=>{
 
-res.send("Restaurant Bot Running 🚀")
+res.send("Restaurant Bot Running")
 
 })
 
-
-/* ======================= */
-/* START */
 /* ======================= */
 
 app.listen(PORT,()=>{
 
-console.log(`🚀 Bot Running on port ${PORT}`)
+console.log("BOT STARTED")
 
 })
