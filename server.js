@@ -7,48 +7,97 @@ app.use(express.json())
 
 const PORT = process.env.PORT || 3000
 
-const OPENAI_KEY = process.env.OPENAI_KEY
 const GREEN_TOKEN = process.env.GREEN_TOKEN
 const ID_INSTANCE = process.env.ID_INSTANCE
 const DELIVERY_SHEET_URL = process.env.DELIVERY_SHEET_URL
 
-/* ======================= */
-/* MENU */
-/* ======================= */
+const ORDER_GROUP = "120363407952234395@g.us"
+
+
+/* ========================= */
+/* MENU FROM FRONTEND */
+/* ========================= */
 
 const MENU = {
-"ديناميت":1,
-"صاروخ الشاورما":1.5,
-"قنبلة رمضان":2.25,
+
 "خابور كباب":2,
-"وجبة زنجر":2,
+"الوجبة العملاقة سناكات":3,
+"الوجبة العائلية سناكات":5,
+"الوجبة الاقتصادية سناكات":2,
+
+"وجبة زنجر عادي":2,
+"قمبلة رمضان برجر":2.25,
+"الوجبة الاقتصادية شورما":2,
+"ضاروخ الشاورما":1.5,
+
+"ونجر ديناميت العرض":2,
+"شاورما العائلية الاوفر":5,
+
+"وجبة برجر لحمة 150 غم":2,
 "وجبة سكالوب":2,
-"وجبة برجر":2,
-"بطاطا":1,
-"بطاطا عائلي":3,
-"بطاطا جامبو":6
+
+"وجبات الشورما الفردية":1.5
+
 }
 
-/* ======================= */
-/* IMAGES */
-/* ======================= */
+
+/* ========================= */
+/* MENU IMAGES */
+/* ========================= */
 
 const MENU_IMAGES = {
+
 "خابور كباب":"https://i.imgur.com/lhWRxlO.jpg",
-"وجبة زنجر":"https://i.imgur.com/wgjBv86.jpg",
-"وجبة برجر":"https://i.imgur.com/9S1VGKX.jpg",
+
+"الوجبة العملاقة سناكات":"https://i.imgur.com/YBdJtXk.jpg",
+
+"الوجبة العائلية سناكات":"https://i.imgur.com/6uzbeo4.jpg",
+
+"الوجبة الاقتصادية سناكات":"https://i.imgur.com/pvBkKto.jpg",
+
+"وجبة زنجر عادي":"https://i.imgur.com/wgjBv86.jpg",
+
+"قمبلة رمضان برجر":"https://i.imgur.com/NrPMh4h.jpg",
+
+"الوجبة الاقتصادية شورما":"https://i.imgur.com/rmq4PS0.jpg",
+
+"ضاروخ الشاورما":"https://i.imgur.com/KpajIR8.jpg",
+
+"ونجر ديناميت العرض":"https://i.imgur.com/sZhwxXE.jpg",
+
+"شاورما العائلية الاوفر":"https://i.imgur.com/tZedL2M.jpg",
+
+"وجبة برجر لحمة 150 غم":"https://i.imgur.com/9S1VGKX.jpg",
+
 "وجبة سكالوب":"https://i.imgur.com/CEdT5cx.jpg",
-"صاروخ الشاورما":"https://i.imgur.com/KpajIR8.jpg"
+
+"وجبات الشورما الفردية":"https://i.imgur.com/FaZvkHe.jpg"
+
 }
 
-/* ======================= */
+
+/* ========================= */
 
 const ORDERS = {}
 let DELIVERY = []
 
-/* ======================= */
-/* SEND MESSAGE */
-/* ======================= */
+
+/* ========================= */
+/* LOAD DELIVERY */
+/* ========================= */
+
+async function loadDelivery(){
+
+if(DELIVERY.length>0) return
+
+const res = await axios.get(DELIVERY_SHEET_URL)
+
+DELIVERY = await csv().fromString(res.data)
+
+}
+
+
+/* ========================= */
 
 async function send(chatId,message){
 
@@ -61,9 +110,6 @@ message
 
 }
 
-/* ======================= */
-/* SEND IMAGE */
-/* ======================= */
 
 async function sendImage(chatId,url,caption){
 
@@ -78,29 +124,19 @@ caption
 
 }
 
-/* ======================= */
-/* LOAD DELIVERY */
-/* ======================= */
 
-async function loadDelivery(){
-
-if(DELIVERY.length>0) return
-
-const res = await axios.get(DELIVERY_SHEET_URL)
-
-DELIVERY = await csv().fromString(res.data)
-
-}
-
-/* ======================= */
-/* ORDER */
-/* ======================= */
+/* ========================= */
 
 function getOrder(user){
 
 if(!ORDERS[user]){
 
-ORDERS[user]={items:[],area:null,delivery:0}
+ORDERS[user]={
+items:[],
+area:null,
+delivery:0,
+confirmed:false
+}
 
 }
 
@@ -108,88 +144,37 @@ return ORDERS[user]
 
 }
 
-/* ======================= */
 
-function addItem(order,name,qty){
+function addItem(order,name){
 
-order.items.push({name,qty,price:MENU[name]})
+order.items.push({
+name,
+price:MENU[name]
+})
 
 }
 
-/* ======================= */
 
 function total(order){
 
-let t=0
+let t = 0
 
 order.items.forEach(i=>{
-t+=i.price*i.qty
+t += i.price
 })
 
-t+=order.delivery
+t += order.delivery
 
 return t
 
 }
 
-/* ======================= */
-/* AI */
-/* ======================= */
 
-async function extractOrder(text){
-
-try{
-
-const ai = await axios.post(
-"https://api.openai.com/v1/chat/completions",
-{
-model:"gpt-4o-mini",
-messages:[
-{
-role:"system",
-content:`Extract order JSON
-
-Return:
-{items:[{name:"",qty:1}]}
-
-Menu:
-ديناميت
-صاروخ الشاورما
-قنبلة رمضان
-خابور كباب
-وجبة زنجر
-وجبة سكالوب
-وجبة برجر
-بطاطا
-بطاطا عائلي
-بطاطا جامبو`
-},
-{role:"user",content:text}
-]
-},
-{
-headers:{Authorization:`Bearer ${OPENAI_KEY}`}
-}
-)
-
-return JSON.parse(ai.data.choices[0].message.content)
-
-}catch{
-
-return null
-
-}
-
-}
-
-/* ======================= */
+/* ========================= */
 /* WEBHOOK */
-/* ======================= */
+/* ========================= */
 
 app.post("/webhook", async (req,res)=>{
-
-console.log("NEW MESSAGE")
-console.log(JSON.stringify(req.body,null,2))
 
 res.sendStatus(200)
 
@@ -199,20 +184,25 @@ const chatId = req.body.senderData?.chatId
 
 if(!chatId) return
 
+/* منع الرد على الجروبات */
+
 if(chatId.endsWith("@g.us")) return
+
 
 const message =
 req.body.messageData?.textMessageData?.textMessage ||
 req.body.messageData?.extendedTextMessageData?.text ||
 ""
 
+
 const order = getOrder(chatId)
 
 await loadDelivery()
 
-/* ======================= */
+
+/* ========================= */
 /* MENU REQUEST */
-/* ======================= */
+/* ========================= */
 
 if(message.includes("منيو")){
 
@@ -226,18 +216,46 @@ return
 
 }
 
-/* ======================= */
+
+/* ========================= */
 /* AREA */
-/* ======================= */
+/* ========================= */
 
 for(const row of DELIVERY){
 
 if(message.includes(row.area)){
 
-order.area=row.area
-order.delivery=Number(row.price)
+order.area = row.area
+order.delivery = Number(row.price)
 
-await send(chatId,"تم تحديد التوصيل "+row.area)
+await send(chatId,"🚚 التوصيل الى "+row.area+" = "+row.price+" دينار")
+
+return
+
+}
+
+}
+
+
+/* ========================= */
+/* ADD ITEM */
+/* ========================= */
+
+for(const item in MENU){
+
+if(message.includes(item)){
+
+addItem(order,item)
+
+if(MENU_IMAGES[item]){
+
+await sendImage(chatId,MENU_IMAGES[item],item)
+
+}
+
+await send(chatId,"تم إضافة "+item)
+
+await send(chatId,"💰 المجموع الحالي "+total(order)+" دينار")
 
 return
 
@@ -245,64 +263,53 @@ return
 
 }
 
-/* ======================= */
-/* ORDER */
-/* ======================= */
 
-const result = await extractOrder(message)
+/* ========================= */
+/* CONFIRM ORDER */
+/* ========================= */
 
-if(result && result.items){
+if(message.includes("تأكيد")){
 
-for(const item of result.items){
+order.confirmed = true
 
-if(MENU[item.name]){
+let text = "طلب جديد\n\n"
 
-addItem(order,item.name,item.qty||1)
+order.items.forEach(i=>{
+text += i.name+"\n"
+})
 
-if(MENU_IMAGES[item.name]){
+text += "\nالتوصيل: "+order.area
+text += "\nالمجموع: "+total(order)+" دينار"
 
-await sendImage(chatId,MENU_IMAGES[item.name],item.name)
+await send(ORDER_GROUP,text)
 
-}
-
-}
-
-}
-
-await send(chatId,"تم إضافة الطلب")
-
-await send(chatId,"المجموع: "+total(order)+" دينار")
+await send(chatId,"تم تأكيد الطلب 👍")
 
 return
 
 }
 
-/* ======================= */
+
+/* ========================= */
 
 await send(chatId,"مرحبا 👋 اكتب منيو لرؤية الوجبات")
 
 }catch(e){
 
-console.log("ERROR",e.message)
+console.log("ERROR:",e.message)
 
 }
 
 })
 
-/* ======================= */
-/* ROOT */
-/* ======================= */
+
+/* ========================= */
 
 app.get("/",(req,res)=>{
-
 res.send("Restaurant Bot Running")
-
 })
 
-/* ======================= */
 
 app.listen(PORT,()=>{
-
-console.log("BOT STARTED")
-
+console.log("BOT RUNNING")
 })
