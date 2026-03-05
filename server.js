@@ -13,6 +13,7 @@ const ID_INSTANCE = process.env.ID_INSTANCE
 const DELIVERY_SHEET_URL = process.env.DELIVERY_SHEET_URL
 
 const ORDER_GROUP_ID = "120363407952234395@g.us"
+const RESTAURANT_PHONE = "0790000000"
 
 
 /* ========================= */
@@ -38,16 +39,17 @@ const MENU = {
 
 
 /* ========================= */
-/* OFFERS */
+/* MENU IMAGES */
 /* ========================= */
 
-const OFFERS = [
+const MENU_IMAGES = {
 
-"🔥 جرب تضيف ديناميت 45سم بس 1 دينار",
-"🔥 كثير ناس يضيفوا صاروخ الشاورما مع الطلب",
-"🔥 قنبلة رمضان 250غ بس 2.25 دينار"
+"وجبة زنجر":"https://raw.githubusercontent.com/username/menu-images/main/zinger.png",
+"وجبة سكالوب":"https://raw.githubusercontent.com/username/menu-images/main/scallop.png",
+"وجبة برجر":"https://raw.githubusercontent.com/username/menu-images/main/burger.png",
+"بطاطا":"https://raw.githubusercontent.com/username/menu-images/main/fries.png"
 
-]
+}
 
 
 /* ========================= */
@@ -58,6 +60,7 @@ const ORDERS = {}
 const CUSTOMERS = {}
 
 let DELIVERY = []
+let LAST_FETCH = 0
 
 
 /* ========================= */
@@ -66,18 +69,19 @@ let DELIVERY = []
 
 async function loadDelivery(){
 
-if(DELIVERY.length === 0){
+const now = Date.now()
+
+if(now - LAST_FETCH < 600000 && DELIVERY.length>0) return
 
 const res = await axios.get(DELIVERY_SHEET_URL)
+
 DELIVERY = await csv().fromString(res.data)
 
-}
+LAST_FETCH = now
 
 }
 
 
-/* ========================= */
-/* NORMALIZE */
 /* ========================= */
 
 function normalize(text){
@@ -94,17 +98,19 @@ return text
 
 
 /* ========================= */
-/* ORDER MEMORY */
-/* ========================= */
 
 function getOrder(user){
 
 if(!ORDERS[user]){
 
 ORDERS[user] = {
+
 items:[],
 area:null,
-deliveryPrice:0
+deliveryPrice:0,
+status:"draft",
+cancelRequest:false
+
 }
 
 }
@@ -114,8 +120,6 @@ return ORDERS[user]
 }
 
 
-/* ========================= */
-/* CUSTOMER */
 /* ========================= */
 
 function getCustomer(user){
@@ -135,12 +139,18 @@ return CUSTOMERS[user]
 
 
 /* ========================= */
-/* ADD ITEM */
-/* ========================= */
 
 function addItem(order,name,qty=1){
 
 if(!MENU[name]) return false
+
+const existing = order.items.find(i=>i.name===name)
+
+if(existing){
+
+existing.qty += qty
+
+}else{
 
 order.items.push({
 name,
@@ -148,13 +158,13 @@ qty,
 price:MENU[name]
 })
 
+}
+
 return true
 
 }
 
 
-/* ========================= */
-/* TOTAL */
 /* ========================= */
 
 function calculateTotal(order){
@@ -175,28 +185,54 @@ return total
 
 
 /* ========================= */
-/* FIND AREA */
-/* ========================= */
 
-function findArea(text){
+function orderSummary(order){
 
-const clean = normalize(text)
+if(order.items.length===0) return "لا يوجد طلب بعد"
 
-for(const row of DELIVERY){
+const items = order.items
+.map(i=>`• ${i.name} × ${i.qty}`)
+.join("\n")
 
-const area = normalize(row.area)
+const total = calculateTotal(order)
 
-if(clean.includes(area)) return row
+return `
+
+🍔 طلبك الحالي
+
+${items}
+
+🚚 التوصيل: ${order.area || "لم يتم تحديد المنطقة"}
+
+💵 المجموع: ${total} دينار
+`
 
 }
 
-return null
+
+/* ========================= */
+/* UPSSELL */
+/* ========================= */
+
+function upsell(order){
+
+if(order.items.find(i=>i.name.includes("زنجر"))){
+
+return "🔥 كثير ناس يضيفوا بطاطا مع الزنجر 🍟"
+
+}
+
+if(order.items.find(i=>i.name==="بطاطا")){
+
+return "🍟 ممكن تكبرها لعائلي بفرق 2 دينار"
+
+}
+
+return "🔥 جرب تضيف ديناميت مع الطلب"
 
 }
 
 
-/* ========================= */
-/* SEND MESSAGE */
 /* ========================= */
 
 async function send(chatId,message){
@@ -206,14 +242,29 @@ await axios.post(
 {
 chatId,
 message
-}
-)
+})
 
 }
 
 
 /* ========================= */
-/* AI ORDER UNDERSTANDING */
+
+async function sendImage(chatId,url,caption=""){
+
+await axios.post(
+`https://7103.api.greenapi.com/waInstance${ID_INSTANCE}/sendFileByUrl/${GREEN_TOKEN}`,
+{
+chatId,
+urlFile:url,
+fileName:"menu.jpg",
+caption
+})
+
+}
+
+
+/* ========================= */
+/* AI ORDER */
 /* ========================= */
 
 async function extractOrder(text){
@@ -223,19 +274,15 @@ try{
 const ai = await axios.post(
 "https://api.openai.com/v1/chat/completions",
 {
-model:"gpt-4o-mini",
+model:"gpt-4o",
 messages:[
 {
 role:"system",
-content:`Extract food order as JSON.
+content:`Extract food order JSON.
 
-Return format:
+Return:
 
-{
-items:[
-{name:"item",qty:number}
-]
-}
+{items:[{name:"",qty:1}]}
 
 Menu items:
 ديناميت
@@ -249,16 +296,11 @@ Menu items:
 بطاطا عائلي
 بطاطا جامبو`
 },
-{
-role:"user",
-content:text
-}
+{role:"user",content:text}
 ]
 },
 {
-headers:{
-Authorization:`Bearer ${OPENAI_KEY}`
-}
+headers:{Authorization:`Bearer ${OPENAI_KEY}`}
 }
 )
 
@@ -274,86 +316,6 @@ return null
 
 
 /* ========================= */
-/* IMAGE ANALYSIS */
-/* ========================= */
-
-async function analyzeImage(url){
-
-const ai = await axios.post(
-"https://api.openai.com/v1/chat/completions",
-{
-model:"gpt-4o-mini",
-messages:[
-{
-role:"system",
-content:`Identify the food item from the menu.
-
-Return only the name.
-
-Menu:
-ديناميت
-صاروخ الشاورما
-قنبلة رمضان
-خابور كباب
-وجبة زنجر
-وجبة سكالوب
-وجبة برجر
-بطاطا`
-},
-{
-role:"user",
-content:[
-{type:"text",text:"what item is this"},
-{type:"image_url",image_url:{url:url}}
-]
-}
-]
-},
-{
-headers:{
-Authorization:`Bearer ${OPENAI_KEY}`
-}
-}
-)
-
-return ai.data.choices[0].message.content.trim()
-
-}
-
-
-/* ========================= */
-/* SEND ORDER TO GROUP */
-/* ========================= */
-
-async function sendOrderToGroup(order,customer){
-
-const items = order.items
-.map(i=>`• ${i.name} × ${i.qty}`)
-.join("\n")
-
-const total = calculateTotal(order)
-
-const text =
-
-`🆕 طلب جديد
-
-👤 ${customer.name}
-📞 ${customer.phone}
-
-🍔 الطلب
-${items}
-
-🚚 ${order.area}
-
-💰 التوصيل ${order.deliveryPrice}
-💵 المجموع ${total}`
-
-await send(ORDER_GROUP_ID,text)
-
-}
-
-
-/* ========================= */
 /* WEBHOOK */
 /* ========================= */
 
@@ -363,11 +325,21 @@ res.sendStatus(200)
 
 try{
 
-if(req.body.typeWebhook !== "incomingMessageReceived") return
+if(req.body.typeWebhook!=="incomingMessageReceived") return
 
-const chatId = req.body.senderData?.chatId
+const chatId=req.body.senderData?.chatId
 
 if(!chatId) return
+
+
+/* تجاهل الجروبات */
+
+if(chatId.endsWith("@g.us")) return
+
+
+/* تجاهل رسائل البوت */
+
+if(req.body.senderData?.isSender) return
 
 
 let message =
@@ -376,41 +348,64 @@ req.body.messageData?.extendedTextMessageData?.text ||
 ""
 
 
-let imageUrl = null
-
-if(req.body.messageData?.fileMessageData){
-
-imageUrl = req.body.messageData.fileMessageData.downloadUrl
-
-}
-
-
-const order = getOrder(chatId)
-const customer = getCustomer(chatId)
+const order=getOrder(chatId)
+const customer=getCustomer(chatId)
 
 await loadDelivery()
 
 
 /* ========================= */
-/* IMAGE */
+/* LOCK AFTER CONFIRM */
 /* ========================= */
 
-if(imageUrl){
-
-const item = await analyzeImage(imageUrl)
-
-if(MENU[item]){
-
-addItem(order,item,1)
+if(order.status==="confirmed"){
 
 await send(chatId,
-`تم إضافة ${item} 👍
 
-${OFFERS[Math.floor(Math.random()*OFFERS.length)]}`)
+`طلبك قيد التحضير 👨‍🍳
+
+لا يمكن تعديل الطلب بعد التأكيد
+
+للتواصل مع المطعم:
+📞 ${RESTAURANT_PHONE}`)
+
+return
 
 }
 
+
+/* ========================= */
+/* CANCEL REQUEST */
+/* ========================= */
+
+if(normalize(message).includes("الغاء")){
+
+order.cancelRequest=true
+
+await send(chatId,
+
+`😢 هل أنت متأكد من الإلغاء؟
+
+يمكننا تعديل الطلب بدل الإلغاء
+
+اكتب:
+تأكيد الالغاء`)
+
 return
+
+}
+
+
+if(normalize(message).includes("تأكيد الالغاء")){
+
+order.status="cancelled"
+
+await send(ORDER_GROUP_ID,"❌ تم إلغاء الطلب")
+
+await send(chatId,"تم إلغاء الطلب")
+
+return
+
 }
 
 
@@ -418,44 +413,62 @@ return
 /* AREA */
 /* ========================= */
 
-const area = findArea(message)
+for(const row of DELIVERY){
 
-if(area){
+if(normalize(message).includes(normalize(row.area))){
 
-order.area = area.area
-order.deliveryPrice = Number(area.price)
+order.area=row.area
+order.deliveryPrice=Number(row.price)
 
 await send(chatId,
-`🚚 التوصيل: ${area.area}
-السعر: ${area.price} دينار`)
+`🚚 تم تحديد المنطقة
+
+${orderSummary(order)}`)
 
 return
 
 }
 
+}
+
 
 /* ========================= */
-/* ORDER TEXT */
+/* ORDER */
 /* ========================= */
 
-const result = await extractOrder(message)
+const result=await extractOrder(message)
 
 if(result && result.items){
+
+let added=false
 
 for(const item of result.items){
 
 if(MENU[item.name]){
 
-addItem(order,item.name,item.qty || 1)
+addItem(order,item.name,item.qty||1)
+
+added=true
+
+if(MENU_IMAGES[item.name]){
+
+await sendImage(chatId,MENU_IMAGES[item.name],item.name)
 
 }
 
 }
+
+}
+
+if(added){
 
 await send(chatId,
-`تم إضافة الطلب 👍
 
-${OFFERS[Math.floor(Math.random()*OFFERS.length)]}`)
+`${orderSummary(order)}
+
+${upsell(order)}`)
+
+}
 
 return
 
@@ -466,13 +479,13 @@ return
 /* PHONE */
 /* ========================= */
 
-const phoneMatch = message.match(/07\d{8}/)
+const phoneMatch=message.match(/07\d{8}/)
 
 if(phoneMatch){
 
-customer.phone = phoneMatch[0]
+customer.phone=phoneMatch[0]
 
-customer.name = message.replace(phoneMatch[0],"").trim()
+customer.name=message.replace(phoneMatch[0],"").trim()
 
 await send(chatId,"تم تسجيل الرقم 👍")
 
@@ -489,14 +502,34 @@ if(normalize(message).includes("تأكيد")){
 
 if(!customer.phone){
 
-await send(chatId,
-"أرسل الاسم + رقم الهاتف لتأكيد الطلب")
+await send(chatId,"أرسل الاسم + رقم الهاتف")
 
 return
 
 }
 
-await sendOrderToGroup(order,customer)
+order.status="confirmed"
+
+const items=order.items
+.map(i=>`• ${i.name} × ${i.qty}`)
+.join("\n")
+
+const total=calculateTotal(order)
+
+await send(ORDER_GROUP_ID,
+
+`✅ طلب مؤكد
+
+👤 ${customer.name}
+📞 ${customer.phone}
+
+🍔 الطلب
+${items}
+
+🚚 ${order.area}
+
+💰 التوصيل ${order.deliveryPrice}
+💵 المجموع ${total}`)
 
 await send(chatId,"تم تأكيد الطلب 👍")
 
@@ -506,7 +539,7 @@ return
 
 }catch(e){
 
-console.log("BOT ERROR:",e.response?.data || e.message)
+console.log("BOT ERROR",e.message)
 
 }
 
