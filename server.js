@@ -1,10 +1,10 @@
-import express from "express"
+رimport express from "express"
 import axios from "axios"
 import csv from "csvtojson"
 
 const app = express()
 app.use(express.json())
-console.log("USER MESSAGE:",message)
+
 const PORT = process.env.PORT || 3000
 
 const OPENAI_KEY = process.env.OPENAI_KEY
@@ -15,7 +15,7 @@ const DELIVERY_SHEET_URL = process.env.DELIVERY_SHEET_URL
 const ORDER_GROUP_ID = "120363407952234395@g.us"
 
 /* ========================= */
-/* MENU (من البرونت) */
+/* MENU */
 /* ========================= */
 
 const MENU = {
@@ -39,7 +39,6 @@ const MENU = {
 /* ========================= */
 
 const IMAGES = {
-
 "خابور كباب":"https://i.imgur.com/lhWRxlO.jpg",
 "الوجبة العملاقة سناكات":"https://i.imgur.com/YBdJtXk.jpg",
 "الوجبة العائلية سناكات":"https://i.imgur.com/6uzbeo4.jpg",
@@ -53,8 +52,18 @@ const IMAGES = {
 "وجبة برجر لحمة 150 غم":"https://i.imgur.com/9S1VGKX.jpg",
 "وجبة سكالوب":"https://i.imgur.com/CEdT5cx.jpg",
 "وجبات الشورما الفردية":"https://i.imgur.com/FaZvkHe.jpg"
-
 }
+
+/* ========================= */
+/* OFFERS */
+/* ========================= */
+
+const OFFERS = [
+"🔥 عرض اليوم: خابور كباب",
+"🔥 زنجر ديناميت من أكثر الطلبات",
+"🔥 جرب صاروخ الشاورما مع طلبك",
+"🔥 الشاورما العائلية تكفي 4 أشخاص"
+]
 
 /* ========================= */
 
@@ -62,15 +71,12 @@ const ORDERS={}
 let DELIVERY=[]
 
 /* ========================= */
-/* تحميل التوصيل */
-/* ========================= */
 
 async function loadDelivery(){
 
 if(DELIVERY.length>0) return
 
 const res=await axios.get(DELIVERY_SHEET_URL)
-
 DELIVERY=await csv().fromString(res.data)
 
 }
@@ -96,12 +102,9 @@ function getOrder(user){
 if(!ORDERS[user]){
 
 ORDERS[user]={
-
 items:[],
 area:null,
-delivery:0,
-confirmed:false
-
+delivery:0
 }
 
 }
@@ -146,6 +149,12 @@ t+=order.delivery
 
 return t
 
+}
+
+/* ========================= */
+
+function randomOffer(){
+return OFFERS[Math.floor(Math.random()*OFFERS.length)]
 }
 
 /* ========================= */
@@ -211,24 +220,20 @@ content:text
 ]
 },
 {
-headers:{
-Authorization:`Bearer ${OPENAI_KEY}`
-}
+headers:{Authorization:`Bearer ${OPENAI_KEY}`}
 }
 )
 
 return JSON.parse(ai.data.choices[0].message.content)
 
 }catch{
-
 return null
-
 }
 
 }
 
 /* ========================= */
-/* AI للحوار */
+/* AI الحوار */
 /* ========================= */
 
 async function aiChat(text){
@@ -242,9 +247,14 @@ messages:[
 role:"system",
 content:`انت موظف مبيعات في مطعم.
 
-كن مهذب وودود.
-اقترح وجبات من القائمة فقط.
-لا تذكر اسعار.`
+هدفك زيادة الطلب.
+
+دائماً:
+- اقترح وجبات
+- ركز على العروض
+- حاول بيع صنف إضافي
+
+لا تخترع اسعار.`
 },
 {
 role:"user",
@@ -253,53 +263,11 @@ content:text
 ]
 },
 {
-headers:{
-Authorization:`Bearer ${OPENAI_KEY}`
-}
+headers:{Authorization:`Bearer ${OPENAI_KEY}`}
 }
 )
 
 return ai.data.choices[0].message.content
-
-}
-
-/* ========================= */
-/* تحليل صورة إعلان */
-/* ========================= */
-
-async function analyzeImage(url){
-
-const ai=await axios.post(
-"https://api.openai.com/v1/chat/completions",
-{
-model:"gpt-4o-mini",
-messages:[
-{
-role:"system",
-content:`Identify the food item from menu.
-
-Menu:
-${Object.keys(MENU).join(",")}
-
-Return name only`
-},
-{
-role:"user",
-content:[
-{type:"text",text:"what food is this"},
-{type:"image_url",image_url:{url:url}}
-]
-}
-]
-},
-{
-headers:{
-Authorization:`Bearer ${OPENAI_KEY}`
-}
-}
-)
-
-return ai.data.choices[0].message.content.trim()
 
 }
 
@@ -319,8 +287,6 @@ const chatId=req.body.senderData?.chatId
 
 if(!chatId) return
 
-/* عدم الرد على الجروبات */
-
 if(chatId.endsWith("@g.us")) return
 
 let message=
@@ -328,35 +294,55 @@ req.body.messageData?.textMessageData?.textMessage ||
 req.body.messageData?.extendedTextMessageData?.text ||
 ""
 
-let imageUrl=null
-
-if(req.body.messageData?.fileMessageData){
-
-imageUrl=req.body.messageData.fileMessageData.downloadUrl
-
-}
+console.log("USER:",message)
 
 const order=getOrder(chatId)
 
 await loadDelivery()
 
 /* ========================= */
-/* صورة */
+/* عروض */
 /* ========================= */
 
-if(imageUrl){
+if(normalize(message).includes("عرض")){
 
-const item=await analyzeImage(imageUrl)
+await send(chatId,
+`🔥 عروض اليوم:
 
-if(MENU[item]){
+${OFFERS.join("\n")}
 
-addItem(order,item)
+أي عرض تحب؟`)
 
-await sendImage(chatId,IMAGES[item],item)
-
-await send(chatId,"تم إضافة الصنف 👍")
+return
 
 }
+
+/* ========================= */
+/* الطلب */
+/* ========================= */
+
+const result=await extractOrder(message)
+
+if(result && result.items){
+
+for(const item of result.items){
+
+if(MENU[item.name]){
+
+addItem(order,item.name,item.qty||1)
+
+await sendImage(chatId,IMAGES[item.name],item.name)
+
+}
+
+}
+
+await send(chatId,
+`👍 تم إضافة الطلب
+
+💰 المجموع الحالي ${total(order)} دينار
+
+${randomOffer()}`)
 
 return
 
@@ -378,34 +364,6 @@ await send(chatId,`🚚 التوصيل الى ${row.area}`)
 return
 
 }
-
-}
-
-/* ========================= */
-/* فهم الطلب */
-/* ========================= */
-
-const result=await extractOrder(message)
-
-if(result && result.items){
-
-for(const item of result.items){
-
-if(MENU[item.name]){
-
-addItem(order,item.name,item.qty||1)
-
-await sendImage(chatId,IMAGES[item.name],item.name)
-
-}
-
-}
-
-await send(chatId,`تم إضافة الطلب 👍
-
-المجموع الحالي ${total(order)} دينار`)
-
-return
 
 }
 
@@ -435,7 +393,7 @@ ${itemsText}
 
 await send(ORDER_GROUP_ID,text)
 
-await send(chatId,"تم تأكيد الطلب 👍")
+await send(chatId,"تم إرسال الطلب للمطعم 👍")
 
 return
 
