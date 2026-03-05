@@ -139,8 +139,11 @@ headers:{Authorization:`Bearer ${OPENAI_KEY}`}
 }
 )
 
+try{
 return JSON.parse(ai.data.choices[0].message.content)
-
+}catch{
+return null
+}
 }
 
 /* ========================= */
