@@ -44,10 +44,19 @@ const MENU = {
 
 const MENU_IMAGES = {
 
-"وجبة زنجر":"https://raw.githubusercontent.com/username/menu-images/main/zinger.png",
-"وجبة سكالوب":"https://raw.githubusercontent.com/username/menu-images/main/scallop.png",
-"وجبة برجر":"https://raw.githubusercontent.com/username/menu-images/main/burger.png",
-"بطاطا":"https://raw.githubusercontent.com/username/menu-images/main/fries.png"
+"خابور كباب":"https://i.imgur.com/lhWRxlO.jpg",
+"الوجبة العملاقة سناكات":"https://i.imgur.com/YBdJtXk.jpg",
+"الوجبة العائلية سناكات":"https://i.imgur.com/6uzbeo4.jpg",
+"الوجبة الاقتصادية سناكات":"https://i.imgur.com/pvBkKto.jpg",
+"وجبة زنجر":"https://i.imgur.com/wgjBv86.jpg",
+"قنبلة رمضان":"https://i.imgur.com/NrPMh4h.jpg",
+"الوجبة الاقتصادية شاورما":"https://i.imgur.com/rmq4PS0.jpg",
+"صاروخ الشاورما":"https://i.imgur.com/KpajIR8.jpg",
+"زنجر ديناميت":"https://i.imgur.com/sZhwxXE.jpg",
+"الشاورما العائلية":"https://i.imgur.com/tZedL2M.jpg",
+"وجبة برجر":"https://i.imgur.com/9S1VGKX.jpg",
+"وجبة سكالوب":"https://i.imgur.com/CEdT5cx.jpg",
+"وجبات الشاورما الفردية":"https://i.imgur.com/FaZvkHe.jpg"
 
 }
 
@@ -56,28 +65,26 @@ const MENU_IMAGES = {
 /* MEMORY */
 /* ========================= */
 
-const ORDERS = {}
-const CUSTOMERS = {}
+const ORDERS={}
+const CUSTOMERS={}
 
-let DELIVERY = []
-let LAST_FETCH = 0
+let DELIVERY=[]
+let LAST_FETCH=0
 
 
-/* ========================= */
-/* LOAD DELIVERY */
 /* ========================= */
 
 async function loadDelivery(){
 
-const now = Date.now()
+const now=Date.now()
 
-if(now - LAST_FETCH < 600000 && DELIVERY.length>0) return
+if(now-LAST_FETCH<600000 && DELIVERY.length>0) return
 
-const res = await axios.get(DELIVERY_SHEET_URL)
+const res=await axios.get(DELIVERY_SHEET_URL)
 
-DELIVERY = await csv().fromString(res.data)
+DELIVERY=await csv().fromString(res.data)
 
-LAST_FETCH = now
+LAST_FETCH=now
 
 }
 
@@ -103,7 +110,7 @@ function getOrder(user){
 
 if(!ORDERS[user]){
 
-ORDERS[user] = {
+ORDERS[user]={
 
 items:[],
 area:null,
@@ -122,33 +129,15 @@ return ORDERS[user]
 
 /* ========================= */
 
-function getCustomer(user){
-
-if(!CUSTOMERS[user]){
-
-CUSTOMERS[user] = {
-name:null,
-phone:null
-}
-
-}
-
-return CUSTOMERS[user]
-
-}
-
-
-/* ========================= */
-
 function addItem(order,name,qty=1){
 
 if(!MENU[name]) return false
 
-const existing = order.items.find(i=>i.name===name)
+const existing=order.items.find(i=>i.name===name)
 
 if(existing){
 
-existing.qty += qty
+existing.qty+=qty
 
 }else{
 
@@ -169,15 +158,13 @@ return true
 
 function calculateTotal(order){
 
-let total = 0
+let total=0
 
 order.items.forEach(i=>{
-
-total += i.price * i.qty
-
+total+=i.qty*i.price
 })
 
-total += order.deliveryPrice
+total+=order.deliveryPrice
 
 return total
 
@@ -188,13 +175,9 @@ return total
 
 function orderSummary(order){
 
-if(order.items.length===0) return "لا يوجد طلب بعد"
+const items=order.items.map(i=>`• ${i.name} × ${i.qty}`).join("\n")
 
-const items = order.items
-.map(i=>`• ${i.name} × ${i.qty}`)
-.join("\n")
-
-const total = calculateTotal(order)
+const total=calculateTotal(order)
 
 return `
 
@@ -211,7 +194,7 @@ ${items}
 
 
 /* ========================= */
-/* UPSSELL */
+/* SMART UPSELL */
 /* ========================= */
 
 function upsell(order){
@@ -224,11 +207,11 @@ return "🔥 كثير ناس يضيفوا بطاطا مع الزنجر 🍟"
 
 if(order.items.find(i=>i.name==="بطاطا")){
 
-return "🍟 ممكن تكبرها لعائلي بفرق 2 دينار"
+return "🍟 ممكن تكبرها لعائلي بفرق بسيط"
 
 }
 
-return "🔥 جرب تضيف ديناميت مع الطلب"
+return "🔥 جرب تضيف صاروخ الشاورما مع الطلب"
 
 }
 
@@ -264,14 +247,14 @@ caption
 
 
 /* ========================= */
-/* AI ORDER */
+/* AI ORDER UNDERSTANDING */
 /* ========================= */
 
 async function extractOrder(text){
 
 try{
 
-const ai = await axios.post(
+const ai=await axios.post(
 "https://api.openai.com/v1/chat/completions",
 {
 model:"gpt-4o",
@@ -316,58 +299,103 @@ return null
 
 
 /* ========================= */
+/* IMAGE ANALYSIS */
+/* ========================= */
+
+async function analyzeImage(url){
+
+const ai=await axios.post(
+"https://api.openai.com/v1/chat/completions",
+{
+model:"gpt-4o",
+messages:[
+{
+role:"system",
+content:`Identify food item.
+
+Return name only.
+
+Menu:
+ديناميت
+صاروخ الشاورما
+قنبلة رمضان
+خابور كباب
+وجبة زنجر
+وجبة سكالوب
+وجبة برجر
+بطاطا`
+},
+{
+role:"user",
+content:[
+{type:"text",text:"what food is this"},
+{type:"image_url",image_url:{url:url}}
+]
+}
+]
+},
+{
+headers:{Authorization:`Bearer ${OPENAI_KEY}`}
+}
+)
+
+return ai.data.choices[0].message.content.trim()
+
+}
+
+
+/* ========================= */
 /* WEBHOOK */
 /* ========================= */
 
-app.post("/webhook", async (req,res)=>{
+app.post("/webhook",async(req,res)=>{
 
 res.sendStatus(200)
 
 try{
 
-if(req.body.typeWebhook!=="incomingMessageReceived") return
+if(req.body.typeWebhook!=="incomingMessageReceived")return
 
 const chatId=req.body.senderData?.chatId
 
-if(!chatId) return
+if(!chatId)return
 
-
-/* تجاهل الجروبات */
 
 if(chatId.endsWith("@g.us")) return
-
-
-/* تجاهل رسائل البوت */
-
 if(req.body.senderData?.isSender) return
 
 
-let message =
-req.body.messageData?.textMessageData?.textMessage ||
-req.body.messageData?.extendedTextMessageData?.text ||
+let message=
+req.body.messageData?.textMessageData?.textMessage||
+req.body.messageData?.extendedTextMessageData?.text||
 ""
 
 
+let imageUrl=null
+
+if(req.body.messageData?.fileMessageData){
+
+imageUrl=req.body.messageData.fileMessageData.downloadUrl
+
+}
+
+
 const order=getOrder(chatId)
-const customer=getCustomer(chatId)
 
 await loadDelivery()
 
 
 /* ========================= */
-/* LOCK AFTER CONFIRM */
+/* IF USER CONFUSED */
 /* ========================= */
 
-if(order.status==="confirmed"){
+if(normalize(message).includes("منيو")){
 
-await send(chatId,
+for(const item in MENU_IMAGES){
 
-`طلبك قيد التحضير 👨‍🍳
+await sendImage(chatId,MENU_IMAGES[item],item)
 
-لا يمكن تعديل الطلب بعد التأكيد
-
-للتواصل مع المطعم:
-📞 ${RESTAURANT_PHONE}`)
+}
 
 return
 
@@ -375,34 +403,26 @@ return
 
 
 /* ========================= */
-/* CANCEL REQUEST */
+/* IMAGE FROM USER */
 /* ========================= */
 
-if(normalize(message).includes("الغاء")){
+if(imageUrl){
 
-order.cancelRequest=true
+const item=await analyzeImage(imageUrl)
+
+if(MENU[item]){
+
+addItem(order,item,1)
 
 await send(chatId,
 
-`😢 هل أنت متأكد من الإلغاء؟
+`${item} 👍
 
-يمكننا تعديل الطلب بدل الإلغاء
+${orderSummary(order)}
 
-اكتب:
-تأكيد الالغاء`)
-
-return
+${upsell(order)}`)
 
 }
-
-
-if(normalize(message).includes("تأكيد الالغاء")){
-
-order.status="cancelled"
-
-await send(ORDER_GROUP_ID,"❌ تم إلغاء الطلب")
-
-await send(chatId,"تم إلغاء الطلب")
 
 return
 
@@ -420,10 +440,7 @@ if(normalize(message).includes(normalize(row.area))){
 order.area=row.area
 order.deliveryPrice=Number(row.price)
 
-await send(chatId,
-`🚚 تم تحديد المنطقة
-
-${orderSummary(order)}`)
+await send(chatId,orderSummary(order))
 
 return
 
@@ -433,22 +450,18 @@ return
 
 
 /* ========================= */
-/* ORDER */
+/* ORDER TEXT */
 /* ========================= */
 
 const result=await extractOrder(message)
 
 if(result && result.items){
 
-let added=false
-
 for(const item of result.items){
 
 if(MENU[item.name]){
 
 addItem(order,item.name,item.qty||1)
-
-added=true
 
 if(MENU_IMAGES[item.name]){
 
@@ -460,78 +473,11 @@ await sendImage(chatId,MENU_IMAGES[item.name],item.name)
 
 }
 
-if(added){
-
 await send(chatId,
 
 `${orderSummary(order)}
 
 ${upsell(order)}`)
-
-}
-
-return
-
-}
-
-
-/* ========================= */
-/* PHONE */
-/* ========================= */
-
-const phoneMatch=message.match(/07\d{8}/)
-
-if(phoneMatch){
-
-customer.phone=phoneMatch[0]
-
-customer.name=message.replace(phoneMatch[0],"").trim()
-
-await send(chatId,"تم تسجيل الرقم 👍")
-
-return
-
-}
-
-
-/* ========================= */
-/* CONFIRM */
-/* ========================= */
-
-if(normalize(message).includes("تأكيد")){
-
-if(!customer.phone){
-
-await send(chatId,"أرسل الاسم + رقم الهاتف")
-
-return
-
-}
-
-order.status="confirmed"
-
-const items=order.items
-.map(i=>`• ${i.name} × ${i.qty}`)
-.join("\n")
-
-const total=calculateTotal(order)
-
-await send(ORDER_GROUP_ID,
-
-`✅ طلب مؤكد
-
-👤 ${customer.name}
-📞 ${customer.phone}
-
-🍔 الطلب
-${items}
-
-🚚 ${order.area}
-
-💰 التوصيل ${order.deliveryPrice}
-💵 المجموع ${total}`)
-
-await send(chatId,"تم تأكيد الطلب 👍")
 
 return
 
@@ -546,15 +492,8 @@ console.log("BOT ERROR",e.message)
 })
 
 
-app.get("/",(req,res)=>{
-
-res.send("Restaurant Bot Running")
-
-})
-
-
 app.listen(PORT,()=>{
 
-console.log("🚀 Bot Running")
+console.log("BOT RUNNING")
 
 })
