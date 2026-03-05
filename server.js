@@ -65,26 +65,27 @@ const MENU_IMAGES = {
 /* MEMORY */
 /* ========================= */
 
-const ORDERS={}
-const CUSTOMERS={}
+const ORDERS = {}
 
-let DELIVERY=[]
-let LAST_FETCH=0
+let DELIVERY = []
+let LAST_FETCH = 0
 
 
+/* ========================= */
+/* LOAD DELIVERY */
 /* ========================= */
 
 async function loadDelivery(){
 
-const now=Date.now()
+const now = Date.now()
 
-if(now-LAST_FETCH<600000 && DELIVERY.length>0) return
+if(now - LAST_FETCH < 600000 && DELIVERY.length > 0) return
 
-const res=await axios.get(DELIVERY_SHEET_URL)
+const res = await axios.get(DELIVERY_SHEET_URL)
 
-DELIVERY=await csv().fromString(res.data)
+DELIVERY = await csv().fromString(res.data)
 
-LAST_FETCH=now
+LAST_FETCH = now
 
 }
 
@@ -110,14 +111,10 @@ function getOrder(user){
 
 if(!ORDERS[user]){
 
-ORDERS[user]={
-
+ORDERS[user] = {
 items:[],
 area:null,
-deliveryPrice:0,
-status:"draft",
-cancelRequest:false
-
+deliveryPrice:0
 }
 
 }
@@ -133,11 +130,11 @@ function addItem(order,name,qty=1){
 
 if(!MENU[name]) return false
 
-const existing=order.items.find(i=>i.name===name)
+const existing = order.items.find(i=>i.name===name)
 
 if(existing){
 
-existing.qty+=qty
+existing.qty += qty
 
 }else{
 
@@ -158,13 +155,13 @@ return true
 
 function calculateTotal(order){
 
-let total=0
+let total = 0
 
 order.items.forEach(i=>{
-total+=i.qty*i.price
+total += i.qty * i.price
 })
 
-total+=order.deliveryPrice
+total += order.deliveryPrice
 
 return total
 
@@ -175,9 +172,9 @@ return total
 
 function orderSummary(order){
 
-const items=order.items.map(i=>`• ${i.name} × ${i.qty}`).join("\n")
+const items = order.items.map(i=>`• ${i.name} × ${i.qty}`).join("\n")
 
-const total=calculateTotal(order)
+const total = calculateTotal(order)
 
 return `
 
@@ -194,25 +191,10 @@ ${items}
 
 
 /* ========================= */
-/* SMART UPSELL */
-/* ========================= */
 
-function upsell(order){
+function upsell(){
 
-if(order.items.find(i=>i.name.includes("زنجر"))){
-
-return "🔥 كثير ناس يضيفوا بطاطا مع الزنجر 🍟"
-
-}
-
-if(order.items.find(i=>i.name==="بطاطا")){
-
-return "🍟 ممكن تكبرها لعائلي بفرق بسيط"
-
-}
-
-return "🔥 جرب تضيف صاروخ الشاورما مع الطلب"
-
+return "🔥 كثير من الزبائن يضيفون بطاطا أو صاروخ شاورما مع الطلب"
 }
 
 
@@ -247,27 +229,26 @@ caption
 
 
 /* ========================= */
-/* AI ORDER UNDERSTANDING */
+/* AI ORDER */
 /* ========================= */
 
 async function extractOrder(text){
 
 try{
 
-const ai=await axios.post(
+const ai = await axios.post(
 "https://api.openai.com/v1/chat/completions",
 {
-model:"gpt-4o",
+model:"gpt-4o-mini",
 messages:[
 {
 role:"system",
-content:`Extract food order JSON.
+content:`Extract food order JSON
 
 Return:
-
 {items:[{name:"",qty:1}]}
 
-Menu items:
+Menu:
 ديناميت
 صاروخ الشاورما
 قنبلة رمضان
@@ -299,94 +280,41 @@ return null
 
 
 /* ========================= */
-/* IMAGE ANALYSIS */
-/* ========================= */
-
-async function analyzeImage(url){
-
-const ai=await axios.post(
-"https://api.openai.com/v1/chat/completions",
-{
-model:"gpt-4o",
-messages:[
-{
-role:"system",
-content:`Identify food item.
-
-Return name only.
-
-Menu:
-ديناميت
-صاروخ الشاورما
-قنبلة رمضان
-خابور كباب
-وجبة زنجر
-وجبة سكالوب
-وجبة برجر
-بطاطا`
-},
-{
-role:"user",
-content:[
-{type:"text",text:"what food is this"},
-{type:"image_url",image_url:{url:url}}
-]
-}
-]
-},
-{
-headers:{Authorization:`Bearer ${OPENAI_KEY}`}
-}
-)
-
-return ai.data.choices[0].message.content.trim()
-
-}
-
-
-/* ========================= */
 /* WEBHOOK */
 /* ========================= */
 
-app.post("/webhook",async(req,res)=>{
+app.post("/webhook", async (req,res)=>{
+
+console.log("===== WEBHOOK RECEIVED =====")
+console.log(JSON.stringify(req.body,null,2))
 
 res.sendStatus(200)
 
 try{
 
-if(req.body.typeWebhook!=="incomingMessageReceived")return
+if(req.body.typeWebhook !== "incomingMessageReceived") return
 
-const chatId=req.body.senderData?.chatId
+const chatId = req.body.senderData?.chatId
 
-if(!chatId)return
-
+if(!chatId) return
 
 if(chatId.endsWith("@g.us")) return
 if(req.body.senderData?.isSender) return
 
 
-let message=
-req.body.messageData?.textMessageData?.textMessage||
-req.body.messageData?.extendedTextMessageData?.text||
+let message =
+req.body.messageData?.textMessageData?.textMessage ||
+req.body.messageData?.extendedTextMessageData?.text ||
 ""
 
 
-let imageUrl=null
-
-if(req.body.messageData?.fileMessageData){
-
-imageUrl=req.body.messageData.fileMessageData.downloadUrl
-
-}
-
-
-const order=getOrder(chatId)
+const order = getOrder(chatId)
 
 await loadDelivery()
 
 
 /* ========================= */
-/* IF USER CONFUSED */
+/* MENU REQUEST */
 /* ========================= */
 
 if(normalize(message).includes("منيو")){
@@ -403,33 +331,6 @@ return
 
 
 /* ========================= */
-/* IMAGE FROM USER */
-/* ========================= */
-
-if(imageUrl){
-
-const item=await analyzeImage(imageUrl)
-
-if(MENU[item]){
-
-addItem(order,item,1)
-
-await send(chatId,
-
-`${item} 👍
-
-${orderSummary(order)}
-
-${upsell(order)}`)
-
-}
-
-return
-
-}
-
-
-/* ========================= */
 /* AREA */
 /* ========================= */
 
@@ -437,8 +338,8 @@ for(const row of DELIVERY){
 
 if(normalize(message).includes(normalize(row.area))){
 
-order.area=row.area
-order.deliveryPrice=Number(row.price)
+order.area = row.area
+order.deliveryPrice = Number(row.price)
 
 await send(chatId,orderSummary(order))
 
@@ -450,10 +351,10 @@ return
 
 
 /* ========================= */
-/* ORDER TEXT */
+/* ORDER */
 /* ========================= */
 
-const result=await extractOrder(message)
+const result = await extractOrder(message)
 
 if(result && result.items){
 
@@ -477,23 +378,32 @@ await send(chatId,
 
 `${orderSummary(order)}
 
-${upsell(order)}`)
-
-return
+${upsell()}`)
 
 }
 
 }catch(e){
 
-console.log("BOT ERROR",e.message)
+console.log("BOT ERROR:",e.message)
 
 }
 
 })
 
 
+/* ========================= */
+/* ROOT */
+/* ========================= */
+
+app.get("/",(req,res)=>{
+
+res.send("Restaurant Bot Running")
+
+})
+
+
 app.listen(PORT,()=>{
 
-console.log("BOT RUNNING")
+console.log("🚀 BOT RUNNING")
 
 })
