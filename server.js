@@ -4,7 +4,7 @@ import csv from "csvtojson"
 
 const app = express()
 app.use(express.json())
-
+console.log("USER MESSAGE:",message)
 const PORT = process.env.PORT || 3000
 
 const OPENAI_KEY = process.env.OPENAI_KEY
