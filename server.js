@@ -35,32 +35,20 @@ app.post("/webhook", async (req, res) => {
   if (!SESSIONS[chatId]) SESSIONS[chatId] = { history: [] };
   const session = SESSIONS[chatId];
 
-  // البرومبت يحتوي على كل المنيو والعروض وأسعار التوصيل
-  const systemPrompt = `
-أنت مندوب مبيعات Saber Jo Snack. ردودك مختصرة جداً (شعبنا ما بحب يقرأ).
-
-🍔 المنيو والعروض (من البرومبت):
-- ديناميت 45 سم (1د) | صاروخ شاورما (1.5د) | قنبلة رمضان برجر 250غم (2.25د) | خابور كباب (2د).
-- وجبات عائلية: اقتصادية (7د)، عائلية (10د)، عملاقة (14د).
-- قاعدة الوجبة: أي ساندويش بصير وجبة بزيادة (1د).
-
-🚚 أسعار التوصيل: اعتمد الأسعار الموجودة في ملف التوصيل المرفق ولا تخمن.
-📍 الموقع: طلوع هافانا، شارع الجامعة. (http://googleusercontent.com/maps.google.gl/NdFQY67DEnswQdKZ9)
-
-⚠️ نظام الترحيل الإجباري:
-عندما يقول العميل "تم" أو "أكد"، أرسل فوراً [KITCHEN_GO] مع:
-🔔 طلب جديد
-👤 الاسم: [الاسم] | 📱 الهاتف: [الهاتف]
-📝 الطلب: [التفاصيل] | التوصيل: [المنطقة] | المجموع: [المجموع].
-`;
+  // ملاحظة: المنيو والأسعار والتفاصيل تُكتب داخل البرومبت في واجهة الإعدادات (أو المتغيرات) وليس هنا.
+  const systemPrompt = process.env.SYSTEM_PROMPT || "أنت مندوب مبيعات Saber Jo Snack. التزم بالمنيو والأسعار الموجودة في تعليماتك فقط."; 
 
   try {
     const aiRes = await axios.post(
       "https://api.openai.com/v1/chat/completions",
       {
         model: "gpt-4o-mini",
-        messages: [{ role: "system", content: systemPrompt }, ...session.history.slice(-3), { role: "user", content: text }],
-        temperature: 0
+        messages: [
+          { role: "system", content: systemPrompt }, 
+          ...session.history.slice(-2), // ذاكرة قصيرة جداً لضمان التركيز على التعليمات الحالية
+          { role: "user", content: text }
+        ],
+        temperature: 0 // صفر لضمان الالتزام التام بالنص المكتوب وعدم الاختراع
       },
       { headers: { Authorization: `Bearer ${SETTINGS.OPENAI_KEY}` } }
     );
@@ -71,7 +59,7 @@ app.post("/webhook", async (req, res) => {
     if (aiReply.includes("[KITCHEN_GO]")) {
       const finalOrder = aiReply.replace("[KITCHEN_GO]", "").trim();
       await sendWA(SETTINGS.KITCHEN_GROUP, finalOrder);
-      await sendWA(chatId, "أبشر، طلبك صار بالمطبخ! ✅");
+      await sendWA(chatId, "أبشر يا غالي، طلبك صار بالمطبخ وجاري التحضير! ✅");
       delete SESSIONS[chatId];
       return;
     }
