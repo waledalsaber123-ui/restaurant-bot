@@ -7,82 +7,79 @@ import path from "path";
 const app = express();
 app.use(express.json());
 
-/* ================= إعدادات النظام (Environment Variables) ================= */
 const SETTINGS = {
   OPENAI_KEY: process.env.OPENAI_KEY,
   GREEN_TOKEN: process.env.GREEN_TOKEN,
   ID_INSTANCE: process.env.ID_INSTANCE,
   KITCHEN_GROUP: process.env.KITCHEN_GROUP || "120363407952234395@g.us",
   API_URL: `https://7103.api.greenapi.com/waInstance${process.env.ID_INSTANCE}`,
-  // سحب المنيو والتوصيل من البيئة حصراً كما طلبت
   DYNAMIC_MENU: process.env.RESTAURANT_MENU, 
   DYNAMIC_DELIVERY: process.env.DELIVERY_PRICES
 };
 
 const SESSIONS = {};
 
-/* ================= نظام البرومبت (التعليمات والدوام) ================= */
 const getSystemPrompt = () => {
   return `
-أنت "صابر". موظف استقبال مطعم شاورما. ردودك قصيرة (سطرين بالكتير)، أردنية، ومباشرة جداً.
+أنت "صابر"، مساعد مطعم شاورما ذكي ومحترف. ردودك قصيرة، أردنية، ومباشرة.
 
-⏰ **أوقات الدوام الرسمي**: 
-من الساعة 2:00 ظهراً حتى الساعة 4:00 فجراً يومياً.
+⏰ **الدوام**: يومياً من 2 ظهراً لـ 4 فجراً.
+📍 **الموقع**: عمان، شارع الجامعة، طلوع هافانا.
 
-📍 **الموقع**: عمان - شارع الجامعة - طلوع هافانا. (https://maps.google.com/?q=32.0155,35.8675)
-
-📋 **قائمة الطعام (المنيو)**:
+🍔 **المنيو والأسعار**:
 ${SETTINGS.DYNAMIC_MENU}
 
-🚚 **رسوم التوصيل**:
+🚚 **التوصيل**:
 ${SETTINGS.DYNAMIC_DELIVERY}
 
-⚠️ **تعليمات صارمة (ممنوع تجاوزها)**:
-1. **الخصوصية**: لا ترد على أي رسالة داخل الجروبات. رد فقط على المحادثات الخاصة.
-2. **الذاكرة**: تذكر الأصناف اللي طلبها العميل. إذا حكى "بدي قنبلة" أو "خابور كباب" لا ترجع تسأله شو طلبك.
-3. **الدقة**: ممنوع الغلط بأسعار التوصيل (طبربور دائماً 3د). لا تستخدم كلمات مثل "تقريباً".
-4. **التسلسل**: احسب المجموع النهائي (أصناف + توصيل) أولاً، ثم اطلب (الاسم والرقم والعنوان).
-5. **الفويس**: إذا وصلك صوت، حوله لنص وتفاعل معه كطلب رسمي.
-6. **الاعتماد**: أرسل [KITCHEN_GO] فقط لما العميل يثبت طلبه نهائياً.
+⚠️ **قواعد العمل (الحل النهائي)**:
+1. **الصور والعروض**: إذا أرسل العميل صورة، حللها فوراً. لا تقل "لا يوجد عروض" إذا كانت الصورة تحتوي على عرض.
+2. **الخصوصية**: ممنوع الرد نهائياً في الجروبات.
+3. **الذاكرة**: تذكر طلب العميل (مثلاً القنبلة أو الخابور) ولا ترجع تسأل "شو طلبك".
+4. **الدقة**: احسب المجموع (أصناف + توصيل) بدقة. طبربور 3 دنانير دائماً.
+5. **البيانات**: لا تطلب الاسم والرقم إلا في نهاية الطلب وبعد حساب السعر.
+6. **التأكيد**: أرسل [KITCHEN_GO] فقط عند كتابة العميل "تم" أو "أكد".
 `;
 };
 
-/* ================= معالجة الرسائل ================= */
 app.post("/webhook", async (req, res) => {
   res.sendStatus(200);
   const body = req.body;
   let chatId = body.senderData?.chatId;
 
-  // منع الرد في الجروبات نهائياً
+  // منع الرد في الجروبات
   if (!chatId || chatId.endsWith("@g.us")) return;
 
   if (!SESSIONS[chatId]) SESSIONS[chatId] = { history: [] };
   const session = SESSIONS[chatId];
 
-  let incomingText = "";
+  let userContent = [];
 
-  // 1. معالجة الصوت (Whisper)
-  if (body.typeWebhook === "incomingFileMessageReceived" && body.messageData?.fileMessageData?.mimeType?.includes("audio")) {
-    incomingText = await transcribeVoice(body.messageData.fileMessageData.downloadUrl);
+  // 1. معالجة الصور (رؤية العروض)
+  if (body.typeWebhook === "incomingFileMessageReceived" && body.messageData?.fileMessageData?.mimeType?.includes("image")) {
+    userContent.push({ type: "text", text: "حلل هذه الصورة جيداً. إذا كانت عرضاً، تفاعل معه بناءً على محتواه." });
+    userContent.push({ type: "image_url", image_url: { url: body.messageData.fileMessageData.downloadUrl } });
   } 
-  // 2. معالجة النصوص
-  else if (body.typeWebhook === "incomingMessageReceived") {
-    incomingText = body.messageData?.textMessageData?.textMessage || body.messageData?.extendedTextMessageData?.text || "";
+  // 2. معالجة الفويس (سمع الطلب)
+  else if (body.typeWebhook === "incomingFileMessageReceived" && body.messageData?.fileMessageData?.mimeType?.includes("audio")) {
+    const transcript = await transcribeVoice(body.messageData.fileMessageData.downloadUrl);
+    userContent.push({ type: "text", text: transcript });
   }
-  // 3. معالجة الصور (Vision)
-  else if (body.typeWebhook === "incomingFileMessageReceived" && body.messageData?.fileMessageData?.mimeType?.includes("image")) {
-    incomingText = "[العميل أرسل صورة، حللها كطلب بناءً على المنيو]";
+  // 3. معالجة النصوص
+  else if (body.typeWebhook === "incomingMessageReceived") {
+    const text = body.messageData?.textMessageData?.textMessage || body.messageData?.extendedTextMessageData?.text || "";
+    userContent.push({ type: "text", text: text });
   }
 
-  if (!incomingText.trim()) return;
+  if (userContent.length === 0) return;
 
   try {
     const ai = await axios.post("https://api.openai.com/v1/chat/completions", {
-      model: "gpt-4o",
+      model: "gpt-4o", // موديل يدعم الرؤية والتحليل العميق
       messages: [
         { role: "system", content: getSystemPrompt() },
-        ...session.history.slice(-40), // ذاكرة لآخر 40 رسالة لضمان عدم النسيان
-        { role: "user", content: incomingText }
+        ...session.history.slice(-40),
+        { role: "user", content: userContent }
       ],
       temperature: 0
     }, { headers: { Authorization: `Bearer ${SETTINGS.OPENAI_KEY}` } });
@@ -90,15 +87,18 @@ app.post("/webhook", async (req, res) => {
     let reply = ai.data.choices[0].message.content;
 
     if (reply.includes("[KITCHEN_GO]")) {
-      await sendWA(SETTINGS.KITCHEN_GROUP, reply.replace("[KITCHEN_GO]", "🔔 *طلب جديد مؤكد*"));
-      await sendWA(chatId, "تم يا غالي، طلبك صار بالمطبخ ورح يوصلك بأسرع وقت. نورتنا! 🙏");
+      await sendWA(SETTINGS.KITCHEN_GROUP, reply.replace("[KITCHEN_GO]", "🔥 *طلب معتمد جديد*"));
+      await sendWA(chatId, "أبشر، طلبك صار بالمطبخ. نورتنا! 🙏");
       delete SESSIONS[chatId];
       return;
     }
 
     await sendWA(chatId, reply);
-    session.history.push({ role: "user", content: incomingText }, { role: "assistant", content: reply });
-  } catch (err) { console.error("AI Error"); }
+    
+    // حفظ النص فقط لتوفير الذاكرة
+    let logText = userContent.find(c => c.type === "text")?.text || "[وسائط]";
+    session.history.push({ role: "user", content: logText }, { role: "assistant", content: reply });
+  } catch (err) { console.error("Error in Saber Engine"); }
 });
 
 /* ================= الوظائف المساعدة ================= */
@@ -115,11 +115,11 @@ async function transcribeVoice(url) {
     });
     fs.unlinkSync(filePath);
     return res.data.text;
-  } catch (err) { return "صوت"; }
+  } catch (err) { return "رسالة صوتية"; }
 }
 
 async function sendWA(chatId, message) {
   try { await axios.post(`${SETTINGS.API_URL}/sendMessage/${SETTINGS.GREEN_TOKEN}`, { chatId, message }); } catch (err) {}
 }
 
-app.listen(3000, () => console.log("Saber Bot 4:00 AM Version Live"));
+app.listen(3000, () => console.log("Saber Bot - Master AI Live"));
