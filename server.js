@@ -8,7 +8,7 @@ const SETTINGS = {
   OPENAI_KEY: process.env.OPENAI_KEY,
   GREEN_TOKEN: process.env.GREEN_TOKEN,
   ID_INSTANCE: process.env.ID_INSTANCE,
-  KITCHEN_GROUP: "120363407952234395@g.us", // جروب المطبخ
+  KITCHEN_GROUP: "120363407952234395@g.us", // جروب المطبخ المطلوب
   API_URL: `https://7103.api.greenapi.com/waInstance${process.env.ID_INSTANCE}`
 };
 
@@ -35,7 +35,7 @@ app.post("/webhook", async (req, res) => {
   if (!SESSIONS[chatId]) SESSIONS[chatId] = { history: [] };
   const session = SESSIONS[chatId];
 
-  // سحب كل شيء (المنيو + أسعار التوصيل + الموقع) من البرومبت فقط
+  // سحب كل التعليمات (منيو + توصيل + لوكيشن) من الـ Key المسمى SYSTEM_PROMPT
   const dynamicPrompt = process.env.SYSTEM_PROMPT; 
 
   try {
@@ -45,7 +45,7 @@ app.post("/webhook", async (req, res) => {
         model: "gpt-4o-mini",
         messages: [
           { role: "system", content: dynamicPrompt }, 
-          ...session.history.slice(-3), // ذاكرة قصيرة لضمان التركيز
+          ...session.history.slice(-3), // ذاكرة قصيرة لضمان الالتزام بالتعليمات الحالية
           { role: "user", content: text }
         ],
         temperature: 0 // للالتزام الحرفي بالتعليمات ومنع الهلوسة
@@ -55,12 +55,12 @@ app.post("/webhook", async (req, res) => {
 
     let aiReply = aiRes.data.choices[0].message.content;
 
-    // ترحيل للجروب المذكور (120363407952234395@g.us) عند التأكيد
+    // ترحيل للجروب (120363407952234395@g.us) فوراً عند التأكيد
     if (aiReply.includes("[KITCHEN_GO]")) {
       const finalOrder = aiReply.replace("[KITCHEN_GO]", "").trim();
       await sendWA(SETTINGS.KITCHEN_GROUP, finalOrder); 
       await sendWA(chatId, "أبشر يا غالي، طلبك صار بالمطبخ! ✅");
-      delete SESSIONS[chatId];
+      delete SESSIONS[chatId]; // مسح الذاكرة بعد الطلب لبدء محادثة جديدة نظيفة
       return;
     }
 
