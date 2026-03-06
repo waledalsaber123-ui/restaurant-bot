@@ -9,31 +9,27 @@ const SETTINGS = {
   OPENAI_KEY: process.env.OPENAI_KEY,
   GREEN_TOKEN: process.env.GREEN_TOKEN,
   ID_INSTANCE: process.env.ID_INSTANCE,
-  KITCHEN_GROUP: "120363407952234395@g.us",
-  SHEET_URL: process.env.DELIVERY_SHEET, // الرابط من الـ Environment Variables
+  KITCHEN_GROUP: "120363407952234395@g.us", // الجروب المطلوب
+  SHEET_URL: process.env.DELIVERY_SHEET, // رابط الأسعار
   API_URL: `https://7103.api.greenapi.com/waInstance${process.env.ID_INSTANCE}`
 };
 
 const SESSIONS = {};
 
-// دالة جلب سعر التوصيل من الرابط
-async function getDeliveryPrice(areaText) {
+// دالة جلب أسعار التوصيل من الرابط لضمان عدم الخطأ
+async function getDeliveryPrice(areaName) {
   try {
     const res = await axios.get(SETTINGS.SHEET_URL);
     const data = await csv().fromString(res.data);
-    // البحث عن المنطقة داخل ملف الـ CSV
-    const zone = data.find(d => areaText.toLowerCase().includes(d.area.trim().toLowerCase()));
-    return zone ? parseFloat(zone.price) : null;
-  } catch (e) {
-    console.log("Error fetching delivery prices");
-    return null;
-  }
+    const zone = data.find(d => areaName.toLowerCase().includes(d.area.trim().toLowerCase()));
+    return zone ? zone.price : "سيتم تحديده لاحقاً";
+  } catch (e) { return "1.5"; } // سعر افتراضي في حال فشل الربط
 }
 
 async function sendWA(chatId, message) {
   try {
     await axios.post(`${SETTINGS.API_URL}/sendMessage/${SETTINGS.GREEN_TOKEN}`, { chatId, message });
-  } catch (e) { console.log("WA Error"); }
+  } catch (e) { console.log("Error sending to WA"); }
 }
 
 app.post("/webhook", async (req, res) => {
@@ -42,39 +38,41 @@ app.post("/webhook", async (req, res) => {
   if (body.typeWebhook !== "incomingMessageReceived") return;
 
   const chatId = body.senderData?.chatId;
-  if (!chatId || chatId.endsWith("@g.us")) return;
+  if (!chatId || chatId.endsWith("@g.us")) return; // ممنوع الرد داخل الجروبات
 
   const text = body.messageData?.textMessageData?.textMessage || 
                body.messageData?.extendedTextMessageData?.text || "";
 
   if (!text.trim()) return;
-  if (!SESSIONS[chatId]) SESSIONS[chatId] = { history: [], deliveryPrice: 0, area: "" };
+  if (!SESSIONS[chatId]) SESSIONS[chatId] = { history: [] };
   const session = SESSIONS[chatId];
 
-  // 1. فحص إذا العميل ذكر منطقة لجلب سعر التوصيل فوراً من الرابط
-  // يتم هذا قبل إرسال الطلب للذكاء الاصطناعي لضمان دقة السعر
-  const deliveryInSheet = await getDeliveryPrice(text);
-  if (deliveryInSheet !== null) {
-    session.deliveryPrice = deliveryInSheet;
-  }
-
+  // البرومبت الآن هو الدستور الأساسي للبوت
   const systemPrompt = `
-أنت مندوب مبيعات Saber Jo Snack. 
-📍 موقعنا: عمّان - شارع الجامعة - طلوع هافانا (https://maps.app.goo.gl/NdFQY67DEnsWQdKZ9).
-⚠️ سعر التوصيل الحالي المكتشف للمنطقة: ${session.deliveryPrice} دينار.
+أنت مندوب مبيعات محترف لمطعم Saber Jo Snack.
+ممنوع نهائياً قول "لا أعرف" أو "لا أملك معلومات". أي معلومة تنقصك، ارجع لهذا النص:
 
-قواعد صارمة:
-- لا ترسل [CONFIRM_ORDER] إلا بعد عرض ملخص (الأصناف، السعر، التوصيل، المجموع) وموافقة العميل بكلمة "أكد" أو "تم".
-- إذا سأل عن الموقع، أرسل الرابط أعلاه فوراً.
-- المنيو: ديناميت (1د)، صاروخ (1.5د)، قنبلة (2.25د)، خابور (2د)، وجبات فردية (2د).
-- استخدم سعر التوصيل (${session.deliveryPrice}) في حساب المجموع النهائي دائماً.
+📍 الموقع واللوكيشن (أرسله فوراً إذا طلب العميل):
+شارع الجامعة الأردنية – عمّان – طلوع هافانا.
+الرابط: https://maps.app.goo.gl/NdFQY67DEnsWQdKZ9
 
-صيغة الترحيل للجروب:
+🍔 المنيو والأسعار (التزم بها حرفياً):
+- ديناميت 45 سم: 1د.
+- صاروخ شاورما 45 سم: 1.5د.
+- قنبلة رمضان (برجر 250غم): 2.25د.
+- خابور كباب: 2د.
+- الوجبات العائلية: اقتصادية (7د)، عائلية (10د)، عملاقة (14د).
+- قاعدة الوجبات: الساندويش بـ 1.5د، والوجبة بـ 2د (زيادة دينار لتحويل أي ساندويش لوجبة).
+
+⚠️ تعليمات إرسال الطلب للجروب:
+عندما يوافق العميل على الملخص النهائي، يجب أن تنهي ردك بكود [SEND_NOW] متبوعاً بالتفاصيل التالية:
 🔔 عميل محتمل جديد
 👤 الاسم: [الاسم]
 📱 الهاتف: [الهاتف]
 📝 ملاحظات:
-الطلب: [التفاصيل]. التوصيل: [المنطقة] (${session.deliveryPrice}د). المجموع النهائي: [المجموع].
+الطلب: [الأصناف]. التوصيل: [المنطقة]. المجموع النهائي: [المجموع].
+──────────────
+📌 المصدر: WhatsApp
 `;
 
   try {
@@ -90,14 +88,16 @@ app.post("/webhook", async (req, res) => {
 
     let aiReply = aiRes.data.choices[0].message.content;
 
-    if (aiReply.includes("[CONFIRM_ORDER]")) {
-      const finalData = aiReply.replace("[CONFIRM_ORDER]", "").trim();
-      await sendWA(SETTINGS.KITCHEN_GROUP, finalData);
-      await sendWA(chatId, "أبشر يا غالي، تم تأكيد طلبك وإرساله للمطبخ! ✅");
+    // ترحيل الطلب للجروب بشكل إجباري عند وجود الكود
+    if (aiReply.includes("[SEND_NOW]")) {
+      const orderDetails = aiReply.replace("[SEND_NOW]", "").trim();
+      await sendWA(SETTINGS.KITCHEN_GROUP, orderDetails); // الإرسال للجروب
+      await sendWA(chatId, "أبشر يا غالي، تم تأكيد طلبك وإرساله للمطبخ فوراً! 🏎️");
       delete SESSIONS[chatId];
       return;
     }
 
+    // الرد العادي على الزبون
     const cleanReply = aiReply.replace(/\[.*?\]/g, "").trim();
     await sendWA(chatId, cleanReply);
     session.history.push({ role: "user", content: text }, { role: "assistant", content: cleanReply });
