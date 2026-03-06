@@ -1,26 +1,126 @@
 import express from "express"
+import axios from "axios"
 
-import {CONFIG} from "./config.js"
-
-import {sendMessage} from "./whatsapp.js"
-
-import {runAI} from "./ai.js"
-
-import {createOrder,ORDERS} from "./orders.js"
-
-import {SESSIONS} from "./sessions.js"
-
-import {loadDelivery,getDeliveryPrice} from "./delivery.js"
-
-const app=express()
-
+const app = express()
 app.use(express.json())
 
-await loadDelivery()
+/* ================= CONFIG ================= */
+
+const OPENAI_KEY = process.env.OPENAI_KEY
+const GREEN_TOKEN = process.env.GREEN_TOKEN
+const ID_INSTANCE = process.env.ID_INSTANCE
+const DELIVERY_SHEET_URL = process.env.DELIVERY_SHEET_URL
+const GROUP_ID = "120363407952234395@g.us"
+
+const API_URL = `https://7103.api.greenapi.com/waInstance${ID_INSTANCE}`
+
+/* ================= MEMORY ================= */
+
+const SESSIONS = {}
+let DELIVERY = {}
+
+/* ================= LOAD DELIVERY ================= */
+
+async function loadDelivery(){
+
+try{
+
+const res = await axios.get(DELIVERY_SHEET_URL)
+
+const rows = res.data.split("\n")
+
+rows.forEach(r=>{
+
+const [area,price] = r.split(",")
+
+if(area) DELIVERY[area.trim()] = Number(price)
+
+})
+
+}catch(e){
+
+console.log("delivery sheet error")
+
+}
+
+}
+
+loadDelivery()
+
+/* ================= SEND WHATSAPP ================= */
+
+async function sendMessage(chatId,text){
+
+await axios.post(
+
+`${API_URL}/sendMessage/${GREEN_TOKEN}`,
+
+{
+chatId,
+message:text
+}
+
+)
+
+}
+
+/* ================= OPENAI ================= */
+
+async function runAI(message){
+
+const res = await axios.post(
+"https://api.openai.com/v1/chat/completions",
+{
+model:"gpt-4o-mini",
+temperature:0,
+response_format:{type:"json_object"},
+messages:[
+{
+role:"system",
+content:`
+انت مندوب طلبات لمطعم في عمان.
+
+ارجع JSON فقط بالشكل:
+
+{
+intent:"",
+items:[],
+reply:""
+}
+
+intent يمكن ان يكون:
+
+order
+confirm
+address
+question
+
+لا تخترع اسعار.
+`
+},
+{
+role:"user",
+content:message
+}
+]
+},
+{
+headers:{
+Authorization:`Bearer ${OPENAI_KEY}`,
+"Content-Type":"application/json"
+}
+}
+)
+
+return JSON.parse(res.data.choices[0].message.content)
+
+}
+
+/* ================= BUILD SUMMARY ================= */
 
 function buildSummary(order){
 
-const items=order.items
+const items = order.items
 .map(i=>`${i.name} × ${i.qty}`)
 .join("\n")
 
@@ -33,7 +133,7 @@ ${items}
 📍 العنوان
 ${order.address}
 
-🚚 التوصيل
+🚚 أجور التوصيل
 ${order.delivery}
 
 💰 المجموع
@@ -45,9 +145,11 @@ ${order.total}
 
 }
 
+/* ================= GROUP MESSAGE ================= */
+
 function buildGroupMessage(order){
 
-const items=order.items
+const items = order.items
 .map(i=>`${i.name} × ${i.qty}`)
 .join("\n")
 
@@ -76,35 +178,53 @@ ${order.total}
 
 }
 
+/* ================= WEBHOOK ================= */
+
 app.post("/webhook",async(req,res)=>{
 
-const body=req.body
+const body = req.body
 
-const chatId=body.senderData?.chatId
-
-const text=body.messageData?.textMessageData?.textMessage
+const chatId = body.senderData?.chatId
+const text = body.messageData?.textMessageData?.textMessage
 
 if(!chatId) return res.sendStatus(200)
 
+/* ignore groups */
+
 if(chatId.includes("@g.us")) return res.sendStatus(200)
+
+/* create session */
 
 if(!SESSIONS[chatId]){
 
-const order=createOrder(chatId)
+SESSIONS[chatId]={
 
-SESSIONS[chatId]={orderId:order.id}
+id:"ORD"+Date.now(),
+phone:chatId,
+items:[],
+address:"",
+delivery:0,
+total:0
 
 }
 
-const order=ORDERS[SESSIONS[chatId].orderId]
+}
 
-const ai=await runAI(text)
+const order = SESSIONS[chatId]
+
+/* AI */
+
+const ai = await runAI(text)
+
+/* reply */
 
 if(ai.reply){
 
 await sendMessage(chatId,ai.reply)
 
 }
+
+/* add items */
 
 if(ai.intent==="order"){
 
@@ -116,35 +236,43 @@ order.items.push(i)
 
 }
 
+/* address */
+
 if(ai.intent==="address"){
 
-order.address=text
+order.address = text
 
-order.delivery=getDeliveryPrice(text)
+order.delivery = DELIVERY[text] || 0
 
-order.total=order.items.length+order.delivery
+order.total = order.items.length + order.delivery
 
-const summary=buildSummary(order)
+const summary = buildSummary(order)
 
 await sendMessage(chatId,summary)
 
 }
 
+/* confirm */
+
 if(ai.intent==="confirm"){
 
-const msg=buildGroupMessage(order)
+const msg = buildGroupMessage(order)
 
-await sendMessage(CONFIG.GROUP_ID,msg)
+await sendMessage(GROUP_ID,msg)
 
 await sendMessage(chatId,"تم تأكيد الطلب ✅")
 
 }
 
+/* ================= */
+
 res.sendStatus(200)
 
 })
 
-app.listen(CONFIG.PORT,()=>{
+/* ================= SERVER ================= */
+
+app.listen(3000,()=>{
 
 console.log("BOT RUNNING")
 
