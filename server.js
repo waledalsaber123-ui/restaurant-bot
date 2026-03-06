@@ -4,7 +4,7 @@ import axios from "axios"
 const app = express()
 app.use(express.json())
 
-/* ================= CONFIG ================= */
+/* ========= ENV ========= */
 
 const OPENAI_KEY = process.env.OPENAI_KEY
 const GREEN_TOKEN = process.env.GREEN_TOKEN
@@ -15,13 +15,12 @@ const GROUP_ID = "120363407952234395@g.us"
 
 const API_URL = `https://7103.api.greenapi.com/waInstance${ID_INSTANCE}`
 
-/* ================= MEMORY ================= */
+/* ========= MEMORY ========= */
 
 const SESSIONS = {}
-
 let DELIVERY = {}
 
-/* ================= LOAD DELIVERY ================= */
+/* ========= LOAD DELIVERY ========= */
 
 async function loadDelivery(){
 
@@ -41,9 +40,9 @@ if(area) DELIVERY[area.trim()] = Number(price)
 
 console.log("Delivery zones loaded")
 
-}catch(e){
+}catch{
 
-console.log("Delivery sheet error",e.message)
+console.log("Delivery sheet failed")
 
 }
 
@@ -51,7 +50,7 @@ console.log("Delivery sheet error",e.message)
 
 loadDelivery()
 
-/* ================= SEND MESSAGE ================= */
+/* ========= WHATSAPP SEND ========= */
 
 async function sendMessage(chatId,text){
 
@@ -68,41 +67,21 @@ message:text
 
 }
 
-/* ================= OPENAI ================= */
+/* ========= AI ========= */
 
 async function runAI(message){
 
 try{
 
-const response = await axios.post(
+const res = await axios.post(
 "https://api.openai.com/v1/chat/completions",
 {
 model:"gpt-4o-mini",
-temperature:0,
+temperature:0.3,
 messages:[
 {
 role:"system",
-content:`
-انت مساعد طلبات لمطعم.
-
-مهم:
-لا تخترع اصناف او اسعار.
-
-ارجع JSON فقط:
-
-{
-intent:"",
-items:[],
-reply:""
-}
-
-intent:
-
-order
-confirm
-address
-question
-`
+content:"انت مساعد طلبات لمطعم. رد بشكل طبيعي ومختصر."
 },
 {
 role:"user",
@@ -112,54 +91,28 @@ content:message
 },
 {
 headers:{
-Authorization:`Bearer ${OPENAI_KEY}`,
-"Content-Type":"application/json"
+Authorization:`Bearer ${OPENAI_KEY}`
 }
 }
 )
 
-const text = response.data.choices[0].message.content
-
-console.log("AI RESPONSE:",text)
-
-try{
-
-return JSON.parse(text)
+return res.data.choices[0].message.content
 
 }catch{
 
-return {
-intent:"question",
-items:[],
-reply:text
-}
-
-}
-
-}catch(err){
-
-console.log("AI ERROR:",err.response?.data || err.message)
-
-return {
-intent:"question",
-items:[],
-reply:"أهلا يا غالي 👋 كيف فيني أساعدك؟"
-}
+return "أهلا يا غالي 👋 شو بتحب تطلب؟"
 
 }
 
 }
 
-/* ================= BUILD SUMMARY ================= */
+/* ========= ORDER SUMMARY ========= */
 
 function buildSummary(order){
 
-const items = order.items
-.map(i=>`${i.name} × ${i.qty}`)
-.join("\n")
+const items = order.items.join("\n")
 
 return `
-
 🧾 ملخص الطلب
 
 ${items}
@@ -167,28 +120,24 @@ ${items}
 📍 العنوان
 ${order.address}
 
-🚚 أجور التوصيل
+🚚 التوصيل
 ${order.delivery}
 
 💰 المجموع
 ${order.total}
 
-اكتب "تأكيد الطلب" لتثبيت الطلب
-
+اكتب: تأكيد الطلب
 `
 
 }
 
-/* ================= GROUP MESSAGE ================= */
+/* ========= GROUP MESSAGE ========= */
 
-function buildGroupMessage(order){
+function buildGroup(order){
 
-const items = order.items
-.map(i=>`${i.name} × ${i.qty}`)
-.join("\n")
+const items = order.items.join("\n")
 
 return `
-
 🚨 طلب جديد
 
 📞 الهاتف
@@ -207,12 +156,11 @@ ${order.delivery}
 ${order.total}
 
 #${order.id}
-
 `
 
 }
 
-/* ================= WEBHOOK ================= */
+/* ========= WEBHOOK ========= */
 
 app.post("/webhook",async(req,res)=>{
 
@@ -231,7 +179,7 @@ if(chatId.includes("@g.us")) return res.sendStatus(200)
 
 if(!SESSIONS[chatId]){
 
-SESSIONS[chatId]={
+SESSIONS[chatId] = {
 
 id:"ORD"+Date.now(),
 phone:chatId,
@@ -246,37 +194,26 @@ total:0
 
 const order = SESSIONS[chatId]
 
-/* run AI */
+/* confirm order */
 
-const ai = await runAI(text)
+if(text?.includes("تأكيد")){
 
-/* reply */
+const msg = buildGroup(order)
 
-if(ai.reply){
+await sendMessage(GROUP_ID,msg)
 
-await sendMessage(chatId,ai.reply)
+await sendMessage(chatId,"تم تأكيد الطلب ✅")
 
-}
-
-/* add items */
-
-if(ai.intent==="order"){
-
-ai.items.forEach(i=>{
-
-order.items.push(i)
-
-})
+return res.sendStatus(200)
 
 }
 
-/* address */
+/* detect address */
 
-if(ai.intent==="address"){
+if(DELIVERY[text]){
 
 order.address = text
-
-order.delivery = DELIVERY[text] || 0
+order.delivery = DELIVERY[text]
 
 order.total = order.items.length + order.delivery
 
@@ -284,17 +221,27 @@ const summary = buildSummary(order)
 
 await sendMessage(chatId,summary)
 
+return res.sendStatus(200)
+
 }
 
-/* confirm */
+/* AI reply */
 
-if(ai.intent==="confirm"){
+const aiReply = await runAI(text)
 
-const msg = buildGroupMessage(order)
+await sendMessage(chatId,aiReply)
 
-await sendMessage(GROUP_ID,msg)
+/* simple order detect */
 
-await sendMessage(chatId,"تم تأكيد الطلب ✅")
+if(text?.includes("ديناميت")){
+
+order.items.push("ديناميت ×1")
+
+}
+
+if(text?.includes("شاورما")){
+
+order.items.push("شاورما ×1")
 
 }
 
@@ -302,7 +249,7 @@ res.sendStatus(200)
 
 })
 
-/* ================= SERVER ================= */
+/* ========= SERVER ========= */
 
 app.listen(3000,()=>{
 
