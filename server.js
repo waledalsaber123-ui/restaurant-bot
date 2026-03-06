@@ -17,34 +17,35 @@ const SETTINGS = {
 
 const SESSIONS = {};
 
+// كل المعلومات الأساسية أصبحت داخل النظام لضمان عدم الخطأ أو النسيان
 const SYSTEM_PROMPT = `
-أنت "صابر"، موظف استقبال في مطعم شاورما بعمان. ردودك قصيرة جداً (سطرين بالكتير) وباللهجة الأردنية.
+أنت "صابر"، مساعد مطعم شاورما محترف. ردودك قصيرة، باللهجة الأردنية، وصارمة في الأسعار.
 
-📍 **معلومات المطعم والموقع**:
-عمان - شارع الجامعة - طلوع هافانا. الموقع: https://maps.google.com/?q=32.0155,35.8675
+📍 **موقعنا**: عمان - شارع الجامعة - طلوع هافانا. 🗺️ الرابط: https://maps.google.com/?q=32.0155,35.8675
 
-📋 **المنيو الرسمية (ممنوع تغيير الأسعار)**:
-- صدور عائلية: أبو 6 (6 سندويش + بطاطا) بـ 6 دنانير | أبو 9 (8 سندويش + بطاطا) بـ 9 دنانير.
-- سناكات: اقتصادية (4 سندويش + بطاطا + بيبسي) بـ 7 دنانير | عائلية بـ 10 دنانير | عملاقة بـ 14 دينار.
-- فردي: ساندويش (1.50) | وجبة مع بطاطا (2.00).
+🍔 **المنيو الرسمية والأسعار (نهائية)**:
+- صدور عائلية: أبو 6 (6 دنانير) | أبو 9 (9 دنانير).
+- سناكات: اقتصادية (7د) | عائلية (10د) | عملاقة (14د).
+- أصناف فردية: ساندويش (1.50) | وجبة (2.00).
 - زنجر ديناميت (45 سم): ساندويش (1.00) | وجبة (2.00).
-- صاروخ شاورما: 1.50 | خابور كباب: 2.00 | قنبلة رمضان: 2.25.
-- وجبات شاورما: عادي 2 | سوبر 2.75 | دبل 3.25 | تربل 4.
+- صاروخ شاورما: 1.50 | خابور كباب: 2.00 | قنبلة رمضان (برجر 250غم): 2.25.
+- وجبات الشاورما: عادي (2) | سوبر (2.75) | دبل (3.25) | تربل (4).
 
-🚚 **أسعار التوصيل الثابتة (ممنوع التأليف)**:
-- استلام من المطعم: 0 دينار.
+🚚 **قائمة التوصيل الثابتة (ممنوع التغيير)**:
+- استلام من المطعم: 0.00 دينار.
 - 1.50: صويلح، الدوريات، مجدي مول.
 - 2.00: تلاع العلي، شارع الجامعة، الجبيهة، الرشيد، المدينة الرياضية، جبل الحسين.
 - 2.50: خلدا، دابوق، أبو نصير، الجاردنز، الشميساني.
-- 3.00: طبربور (دائماً 3د)، عبدون، الصويفية، شفا بدران، وسط البلد.
+- 3.00: طبربور (دائماً 3 دنانير)، عبدون، الصويفية، شفا بدران، وسط البلد.
 - 4.00: سحاب، ماركا، وادي السير، القويسمة، أبو علندا.
 
-⚠️ **قوانين الذاكرة والتعامل**:
-1. تذكر شو طلب العميل بالأول ولا تسأله "شو بدك تطلب" إذا حكى الصنف.
-2. إذا العميل حكى "استلام"، احذف رسوم التوصيل فوراً.
-3. افهم الفويس وحوله لطلب نصي.
-4. اطلب الاسم والرقم والعنوان بآخر المحادثة بعد ما تعطي السعر النهائي.
-5. لا ترسل [KITCHEN_GO] إلا لما العميل يحكي "تم" أو "أكد".
+⚠️ **تعليمات الذاكرة والتعامل**:
+1. ابدأ بحصر الطلب وحساب سعره فوراً قبل طلب أي بيانات شخصية.
+2. ميز بين "سندويش" و "وجبة" (الوجبة دائماً معها بطاطا).
+3. بعد السعر، اسأل (توصيل ولا استلام؟). إذا توصيل، حدد السعر من القائمة أعلاه.
+4. اطلب (الاسم، الرقم، العنوان) في رسالة واحدة فقط في نهاية المحادثة.
+5. لا تنسى الطلبات السابقة في المحادثة، ولا تكرر الترحيب إذا بدأ العميل طلبه.
+6. لا ترسل [KITCHEN_GO] إلا بعد كلمة "تم" أو "أكد" من العميل.
 `;
 
 app.post("/webhook", async (req, res) => {
@@ -58,17 +59,17 @@ app.post("/webhook", async (req, res) => {
 
   let incomingText = "";
 
-  // فهم الفويس
+  // فهم الصوت (فويس)
   if (body.typeWebhook === "incomingFileMessageReceived" && body.messageData?.fileMessageData?.mimeType?.includes("audio")) {
     incomingText = await transcribeVoice(body.messageData.fileMessageData.downloadUrl);
   } 
-  // معالجة النصوص
+  // فهم النصوص
   else if (body.typeWebhook === "incomingMessageReceived") {
     incomingText = body.messageData?.textMessageData?.textMessage || body.messageData?.extendedTextMessageData?.text || "";
   }
-  // تحليل الصور
+  // فهم الصور
   else if (body.typeWebhook === "incomingFileMessageReceived" && body.messageData?.fileMessageData?.mimeType?.includes("image")) {
-    incomingText = "[العميل بعت صورة، حللها كأنها طلب]";
+    incomingText = "[العميل أرسل صورة، حللها كطلب أو استفسار]";
   }
 
   if (!incomingText) return;
@@ -78,7 +79,7 @@ app.post("/webhook", async (req, res) => {
       model: "gpt-4o",
       messages: [
         { role: "system", content: SYSTEM_PROMPT },
-        ...session.history.slice(-40), // ذاكرة قوية لـ 40 رسالة
+        ...session.history.slice(-40), // ذاكرة عميقة لـ 40 رسالة لضمان عدم النسيان
         { role: "user", content: incomingText }
       ],
       temperature: 0
@@ -87,21 +88,21 @@ app.post("/webhook", async (req, res) => {
     let reply = ai.data.choices[0].message.content;
 
     if (reply.includes("[KITCHEN_GO]")) {
-      await sendWA(SETTINGS.KITCHEN_GROUP, reply.replace("[KITCHEN_GO]", "🔔 *طلب جديد مؤكد*"));
-      await sendWA(chatId, "تم يا غالي، الطلب صار بالمطبخ ورح يوصلك بأسرع وقت. نورتنا! 🙏");
+      await sendWA(SETTINGS.KITCHEN_GROUP, reply.replace("[KITCHEN_GO]", "🔥 *طلب معتمد جديد*"));
+      await sendWA(chatId, "أبشر، طلبك صار بالمطبخ ورح يوصلك بأسرع وقت. نورتنا! 🙏");
       delete SESSIONS[chatId];
       return;
     }
 
     await sendWA(chatId, reply);
     session.history.push({ role: "user", content: incomingText }, { role: "assistant", content: reply });
-  } catch (err) { console.error("AI Error"); }
+  } catch (err) { console.error("Error in AI chain"); }
 });
 
 async function transcribeVoice(url) {
   try {
     const response = await axios.get(url, { responseType: 'arraybuffer' });
-    const filePath = path.join("/tmp", `v_${Date.now()}.ogg`);
+    const filePath = path.join("/tmp", `voice_${Date.now()}.ogg`);
     fs.writeFileSync(filePath, Buffer.from(response.data));
     const formData = new FormData();
     formData.append("file", fs.createReadStream(filePath));
@@ -111,11 +112,11 @@ async function transcribeVoice(url) {
     });
     fs.unlinkSync(filePath);
     return res.data.text;
-  } catch (err) { return "صوت من العميل"; }
+  } catch (err) { return "صوت لم أفهمه"; }
 }
 
 async function sendWA(chatId, message) {
   try { await axios.post(`${SETTINGS.API_URL}/sendMessage/${SETTINGS.GREEN_TOKEN}`, { chatId, message }); } catch (err) {}
 }
 
-app.listen(3000, () => console.log("Saber Bot - Final Version Online"));
+app.listen(3000, () => console.log("Saber Bot - Master Version Ready"));
