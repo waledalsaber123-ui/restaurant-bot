@@ -1,4 +1,4 @@
-رimport express from "express"
+import express from "express"
 import axios from "axios"
 import csv from "csvtojson"
 
@@ -55,20 +55,32 @@ const IMAGES = {
 }
 
 /* ========================= */
-/* OFFERS */
+/* MEMORY */
 /* ========================= */
 
-const OFFERS = [
-"🔥 عرض اليوم: خابور كباب",
-"🔥 زنجر ديناميت من أكثر الطلبات",
-"🔥 جرب صاروخ الشاورما مع طلبك",
-"🔥 الشاورما العائلية تكفي 4 أشخاص"
-]
+const MEMORY={}
+
+function getMemory(user){
+
+if(!MEMORY[user]){
+
+MEMORY[user]={
+history:[],
+lastOrder:[]
+}
+
+}
+
+return MEMORY[user]
+
+}
 
 /* ========================= */
 
 const ORDERS={}
+const ACTIVE_ORDERS={}
 let DELIVERY=[]
+let GLOBAL_PROMPT=""
 
 /* ========================= */
 
@@ -120,9 +132,7 @@ function addItem(order,name,qty=1){
 const existing=order.items.find(i=>i.name===name)
 
 if(existing){
-
 existing.qty+=qty
-
 }else{
 
 order.items.push({
@@ -153,8 +163,8 @@ return t
 
 /* ========================= */
 
-function randomOffer(){
-return OFFERS[Math.floor(Math.random()*OFFERS.length)]
+function generateOrderId(){
+return Math.floor(1000+Math.random()*9000)
 }
 
 /* ========================= */
@@ -186,7 +196,7 @@ caption
 }
 
 /* ========================= */
-/* AI فهم الطلب */
+/* AI ORDER */
 /* ========================= */
 
 async function extractOrder(text){
@@ -200,18 +210,15 @@ model:"gpt-4o-mini",
 messages:[
 {
 role:"system",
-content:`Extract restaurant order JSON.
-
-Return format:
-
-{
-items:[
-{name:"item",qty:number}
-]
-}
+content:`Extract restaurant order.
 
 Menu:
-${Object.keys(MENU).join(",")}`
+${Object.keys(MENU).join(",")}
+
+Return JSON:
+{
+items:[{name:"item",qty:number}]
+}`
 },
 {
 role:"user",
@@ -233,33 +240,51 @@ return null
 }
 
 /* ========================= */
-/* AI الحوار */
+/* AI CHAT */
 /* ========================= */
 
-async function aiChat(text){
+async function aiChat(text, memory){
+
+const prompt=`
+
+انت موظف مبيعات في مطعم.
+
+مهم:
+لا تخترع معلومات.
+لا تخترع اسعار.
+استخدم فقط المنيو.
+
+اذا لم تعرف الجواب قل:
+دعني أتأكد من المطعم.
+
+كن:
+- ودي
+- مختصر
+- طبيعي
+
+هدفك:
+- مساعدة العميل
+- اقتراح وجبات
+- زيادة المبيعات
+
+المنيو:
+${Object.keys(MENU).join(",")}
+
+طلبات العميل السابقة:
+${JSON.stringify(memory.lastOrder)}
+
+${GLOBAL_PROMPT}
+
+`
 
 const ai=await axios.post(
 "https://api.openai.com/v1/chat/completions",
 {
 model:"gpt-4o-mini",
 messages:[
-{
-role:"system",
-content:`انت موظف مبيعات في مطعم.
-
-هدفك زيادة الطلب.
-
-دائماً:
-- اقترح وجبات
-- ركز على العروض
-- حاول بيع صنف إضافي
-
-لا تخترع اسعار.`
-},
-{
-role:"user",
-content:text
-}
+{role:"system",content:prompt},
+...memory.history,
+{role:"user",content:text}
 ]
 },
 {
@@ -287,38 +312,39 @@ const chatId=req.body.senderData?.chatId
 
 if(!chatId) return
 
-if(chatId.endsWith("@g.us")) return
-
 let message=
 req.body.messageData?.textMessageData?.textMessage ||
 req.body.messageData?.extendedTextMessageData?.text ||
 ""
 
-console.log("USER:",message)
-
 const order=getOrder(chatId)
+const memory=getMemory(chatId)
+
+memory.history.push({role:"user",content:message})
+
+if(memory.history.length>8){
+memory.history.shift()
+}
 
 await loadDelivery()
 
 /* ========================= */
-/* عروض */
+/* ارسال صورة المنتج */
 /* ========================= */
 
-if(normalize(message).includes("عرض")){
+for(const item in MENU){
 
-await send(chatId,
-`🔥 عروض اليوم:
+if(normalize(message).includes(normalize(item))){
 
-${OFFERS.join("\n")}
-
-أي عرض تحب؟`)
-
+await sendImage(chatId,IMAGES[item],`${item} - ${MENU[item]} دينار`)
 return
 
 }
 
+}
+
 /* ========================= */
-/* الطلب */
+/* استخراج الطلب */
 /* ========================= */
 
 const result=await extractOrder(message)
@@ -337,12 +363,9 @@ await sendImage(chatId,IMAGES[item.name],item.name)
 
 }
 
-await send(chatId,
-`👍 تم إضافة الطلب
+memory.lastOrder=order.items
 
-💰 المجموع الحالي ${total(order)} دينار
-
-${randomOffer()}`)
+await send(chatId,`👍 تم إضافة الطلب\n💰 المجموع ${total(order)} دينار`)
 
 return
 
@@ -373,6 +396,10 @@ return
 
 if(normalize(message).includes("تأكيد")){
 
+const orderId=generateOrderId()
+
+ACTIVE_ORDERS[orderId]=order
+
 let itemsText=""
 
 order.items.forEach(i=>{
@@ -381,14 +408,19 @@ itemsText+=`• ${i.name} × ${i.qty}\n`
 
 const text=`
 
-🆕 طلب جديد
+🆕 طلب جديد #${orderId}
 
 🍔 الطلب
 ${itemsText}
 
-🚚 ${order.area}
+📍 ${order.area}
 
 💰 المجموع ${total(order)} دينار
+
+للمندوب:
+اكتب
+
+سحب ${orderId}
 `
 
 await send(ORDER_GROUP_ID,text)
@@ -400,10 +432,12 @@ return
 }
 
 /* ========================= */
-/* AI حوار */
+/* AI CHAT */
 /* ========================= */
 
-const reply=await aiChat(message)
+const reply=await aiChat(message,memory)
+
+memory.history.push({role:"assistant",content:reply})
 
 await send(chatId,reply)
 
@@ -412,6 +446,18 @@ await send(chatId,reply)
 console.log("BOT ERROR",e.response?.data || e.message)
 
 }
+
+})
+
+/* ========================= */
+/* PROMPT CONTROL */
+/* ========================= */
+
+app.post("/prompt",(req,res)=>{
+
+GLOBAL_PROMPT=req.body.prompt
+
+res.send("prompt updated")
 
 })
 
