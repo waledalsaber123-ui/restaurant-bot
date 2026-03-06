@@ -21,7 +21,7 @@ API_URL:`https://7103.api.greenapi.com/waInstance${process.env.ID_INSTANCE}`
 const SESSIONS={};
 
 /* ========================= */
-/* MENU (SYSTEM ONLY) */
+/* MENU SYSTEM */
 /* ========================= */
 
 const MENU={
@@ -32,7 +32,7 @@ const MENU={
 };
 
 /* ========================= */
-/* DELIVERY PRICE */
+/* DELIVERY */
 /* ========================= */
 
 async function getDeliveryPrice(area){
@@ -64,35 +64,27 @@ const prompt=`
 
 أنت موظف مبيعات لمطعم.
 
-مهم جداً:
+قواعدك:
 
-لا تكرر الترحيب.
-لا تخترع أسعار.
-لا تخترع أصناف.
+- لا تكرر الترحيب.
+- الترحيب يكون فقط إذا كانت أول رسالة.
+- إذا سأل العميل عن الأصناف اعرض المنيو.
+- إذا ذكر اسم وجبة أضفها مباشرة.
 
-فقط تحدث مع العميل وساعده يطلب.
+المنيو:
+خابور كباب
+صاروخ شاورما
+زنجر ديناميت
+الوجبة العملاقة
 
-إذا قررت إضافة صنف استخدم:
+إذا أضفت صنف استخدم:
 
 [ADD:اسم_الصنف:الكمية]
-
-إذا قررت تحديد المنطقة:
-
-[SET_AREA:المنطقة]
-
-إذا طلب العميل إلغاء الطلب:
-
-[CLEAR]
 
 سلة العميل:
 ${JSON.stringify(session.items)}
 
-المنطقة:
-${session.area || "غير محددة"}
-
 `;
-
-try{
 
 const res=await axios.post(
 "https://api.openai.com/v1/chat/completions",
@@ -111,12 +103,6 @@ headers:{Authorization:`Bearer ${CONFIG.OPENAI_KEY}`}
 );
 
 return res.data.choices[0].message.content;
-
-}catch{
-
-return "اهلا وسهلا يا غالي كيف بقدر اساعدك؟";
-
-}
 
 }
 
@@ -178,7 +164,7 @@ history:[]
 const session=SESSIONS[chatId];
 
 /* ========================= */
-/* SAVE HISTORY */
+/* HISTORY */
 /* ========================= */
 
 session.history.push({
@@ -186,15 +172,17 @@ role:"user",
 content:userMsg
 });
 
-if(session.history.length>6){
+if(session.history.length>8){
+
 session.history.shift();
+
 }
 
 /* ========================= */
-/* ORDER CONFIRM */
+/* CONFIRM ORDER */
 /* ========================= */
 
-if(userMsg.includes("تأكيد") || userMsg.includes("اكد")){
+if(userMsg.includes("تأكيد")){
 
 const total=session.items.reduce((s,i)=>s+(i.p*i.q),0)+session.deliveryFee;
 
@@ -206,7 +194,7 @@ await axios.post(
 `${CONFIG.API_URL}/sendMessage/${CONFIG.GREEN_TOKEN}`,
 {
 chatId:CONFIG.ORDER_GROUP_ID,
-message:`🔔 طلب جديد
+message:`طلب جديد
 
 العميل: ${chatId}
 
@@ -214,7 +202,7 @@ message:`🔔 طلب جديد
 
 الطلب: ${summary}
 
-المجموع: ${total} دينار`
+المجموع: ${total}`
 });
 
 session.items=[];
@@ -225,7 +213,7 @@ return axios.post(
 `${CONFIG.API_URL}/sendMessage/${CONFIG.GREEN_TOKEN}`,
 {
 chatId,
-message:"✅ تم تأكيد الطلب وسيتم تجهيزه"
+message:"تم تأكيد الطلب 👍"
 });
 
 }
@@ -235,33 +223,6 @@ message:"✅ تم تأكيد الطلب وسيتم تجهيزه"
 /* ========================= */
 
 const aiRes=await askAI(userMsg,session);
-
-/* ========================= */
-/* CLEAR ORDER */
-/* ========================= */
-
-if(aiRes.includes("[CLEAR]")){
-
-session.items=[];
-session.area=null;
-session.deliveryFee=0;
-
-}
-
-/* ========================= */
-/* SET AREA */
-/* ========================= */
-
-if(aiRes.includes("[SET_AREA:")){
-
-const area=aiRes.match(/\[SET_AREA:(.*?)\]/)[1];
-
-const price=await getDeliveryPrice(area);
-
-session.area=area;
-session.deliveryFee=price;
-
-}
 
 /* ========================= */
 /* ADD ITEM */
@@ -274,7 +235,6 @@ const match=aiRes.match(/\[ADD:(.*?):(\d+)\]/);
 if(match){
 
 const meal=match[1];
-
 const qty=parseInt(match[2]);
 
 addItem(session,meal,qty);
@@ -284,13 +244,13 @@ addItem(session,meal,qty);
 }
 
 /* ========================= */
-/* CLEAN AI TEXT */
+/* CLEAN MESSAGE */
 /* ========================= */
 
 let reply=aiRes.replace(/\[.*?\]/g,"").trim();
 
 /* ========================= */
-/* CALCULATE TOTAL */
+/* CALCULATE */
 /* ========================= */
 
 const sub=session.items.reduce((s,i)=>s+(i.p*i.q),0);
@@ -299,16 +259,16 @@ if(sub>0){
 
 reply+=`
 
-🛒 الطلب الحالي: ${sub} دينار
-🚚 التوصيل: ${session.deliveryFee} دينار
-💰 المجموع: ${sub+session.deliveryFee} دينار
+🛒 الطلب: ${sub} دينار
+🚚 التوصيل: ${session.deliveryFee}
+💰 المجموع: ${sub+session.deliveryFee}
 
 اكتب "تأكيد" لإرسال الطلب`;
 
 }
 
 /* ========================= */
-/* SAVE AI HISTORY */
+/* SAVE HISTORY */
 /* ========================= */
 
 session.history.push({
@@ -317,7 +277,7 @@ content:reply
 });
 
 /* ========================= */
-/* SEND MESSAGE */
+/* SEND */
 /* ========================= */
 
 await axios.post(
@@ -332,5 +292,7 @@ message:reply
 /* ========================= */
 
 app.listen(3000,()=>{
+
 console.log("BOT RUNNING");
+
 });
