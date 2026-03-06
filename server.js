@@ -5,34 +5,31 @@ import csv from "csvtojson";
 const app = express();
 app.use(express.json());
 
-/* ========= الإعدادات (Environment Variables) ========= */
+/* ========= الإعدادات المباشرة ========= */
 const SETTINGS = {
     OPENAI_KEY: process.env.OPENAI_KEY,
     GREEN_TOKEN: process.env.GREEN_TOKEN,
     ID_INSTANCE: process.env.ID_INSTANCE,
     SHEET_URL: process.env.DELIVERY_SHEET_URL,
-    GROUP_ID: "120363407952234395@g.us", // الجروب المطلوب
+    GROUP_ID: "120363407952234395@g.us",
     API_URL: `https://7103.api.greenapi.com/waInstance${process.env.ID_INSTANCE}`
 };
 
-// المنيو والأسعار الرسمية لضمان عدم الهلوسة
-const MENU_PRICES = {
+// أسعار المنيو حسب البرومبت (للحساب البرمجي الدقيق)
+const PRICES = {
     "ديناميت": 1.0,
     "صاروخ الشاورما": 1.5,
     "قنبلة رمضان": 2.25,
     "خابور كباب": 2.0,
-    "وجبة عائلية 4": 7.0,
-    "وجبة عائلية 6": 10.0,
-    "وجبة عائلية 9": 14.0,
-    "وجبة شاورما عادي": 2.0,
-    "ساندويش زنجر": 1.5,
-    "وجبة زنجر": 2.0
+    "زنجر": 1.5,
+    "برجر": 1.5,
+    "شاورما عادي": 1.0
 };
 
 const SESSIONS = {};
 const LAST_MESSAGE = {};
 
-/* ========= دالة حساب التوصيل من الشيت ========= */
+/* ========= دالة الحساب والتوصيل ========= */
 async function getDeliveryPrice(areaText) {
     try {
         const res = await axios.get(SETTINGS.SHEET_URL);
@@ -45,40 +42,35 @@ async function getDeliveryPrice(areaText) {
 async function sendWA(chatId, message) {
     try {
         await axios.post(`${SETTINGS.API_URL}/sendMessage/${SETTINGS.GREEN_TOKEN}`, { chatId, message });
-    } catch (e) { console.error("WA Send Error"); }
+    } catch (e) { console.error("Send Error"); }
 }
 
-/* ========= المعالج الرئيسي (Webhook) ========= */
+/* ========= الويب هوك (حل التكرار والهلوسة) ========= */
 app.post("/webhook", async (req, res) => {
-    // 1. حل مشكلة التكرار 100 مرة: الرد الفوري بـ 200
+    // 1. حل التكرار: رد فوري بـ 200
     res.sendStatus(200);
 
     const body = req.body;
     if (body.typeWebhook !== "incomingMessageReceived") return;
 
     const chatId = body.senderData?.chatId;
-    // دعم كافة أنواع الرسائل لحل مشكلة "في انتظار الرسالة"
+    // دعم فك التشفير للرسائل المعلقة (image_9820a9.jpg)
     const text = (body.messageData?.textMessageData?.textMessage || 
                   body.messageData?.extendedTextMessageData?.text || "").trim();
 
-    // 2. منع الرد على الجروبات (فقط العملاء)
     if (!chatId || !text || chatId.includes("@g.us")) return;
-
     if (LAST_MESSAGE[chatId] === text) return;
     LAST_MESSAGE[chatId] = text;
 
     if (!SESSIONS[chatId]) SESSIONS[chatId] = { items: [], area: "", delivery: 0, total: 0 };
     const session = SESSIONS[chatId];
 
-    // 3. البرومبت الصارم (System Prompt)
+    // 2. برومبت النظام (ياخذ الأسعار من هنا)
     const systemPrompt = `
-    أنت كاشير مطعم "Saber Jo Snack". المنيو والأسعار: ${JSON.stringify(MENU_PRICES)}.
-    لهجتك أردنية (يا غالي، أبشر، على راسي).
-    مهمتك استخراج البيانات فقط بالأوامر التالية:
-    - لطلب صنف: [ADD:اسم_الصنف:الكمية]
-    - لتحديد منطقة: [AREA:اسم_المنطقة]
-    - للتأكيد النهائي: [CONFIRM]
-    لا تحسب المجموع بنفسك إطلاقاً، النظام سيقوم بذلك.
+    أنت كاشير مطعم "Saber Jo Snack". 
+    المنيو: ${JSON.stringify(PRICES)}.
+    استخرج الأوامر فقط: [ADD:اسم_الصنف:الكمية] أو [AREA:المنطقة] أو [CONFIRM].
+    لهجتك أردنية (يا غالي، أبشر).
     `;
 
     try {
@@ -90,47 +82,38 @@ app.post("/webhook", async (req, res) => {
 
         const content = aiRes.data.choices[0].message.content;
 
-        // 4. الحساب البرمجي الدقيق (Math Logic)
+        // 3. معالجة الحساب (الكمية × السعر) - حل مشكلة الـ 7 دنانير
         if (content.includes("[ADD:")) {
             const matches = content.match(/\[ADD:(.*?):(\d+)\]/g);
             matches?.forEach(m => {
                 const [_, name, qty] = m.match(/\[ADD:(.*?):(\d+)\]/);
-                const price = MENU_PRICES[name] || 0;
-                if (price > 0) session.items.push({ name, qty: parseInt(qty), p: price });
+                const p = PRICES[name] || 0;
+                if (p > 0) session.items.push({ name, qty: parseInt(qty), p });
             });
         }
 
         if (content.includes("[AREA:")) {
-            const areaName = content.match(/\[AREA:(.*?)\]/)[1];
-            session.area = areaName;
-            session.delivery = await getDeliveryPrice(areaName);
+            const area = content.match(/\[AREA:(.*?)\]/)[1];
+            session.area = area;
+            session.delivery = await getDeliveryPrice(area);
         }
 
-        // حساب المجموع (سعر كل صنف × كميته) + التوصيل
-        const subtotal = session.items.reduce((sum, i) => sum + (i.p * i.qty), 0);
-        session.total = subtotal + session.delivery;
+        // الحساب النهائي
+        const itemsTotal = session.items.reduce((sum, i) => sum + (i.p * i.qty), 0);
+        session.total = itemsTotal + session.delivery;
 
-        // 5. التأكيد والإرسال للجروب
         if (content.includes("[CONFIRM]") && session.items.length > 0) {
-            const groupMsg = `🚨 *طلب جديد مؤكد*\n\n📞 هاتف: ${chatId.split('@')[0]}\n📍 المنطقة: ${session.area}\n🍔 الطلبات:\n${session.items.map(i => `- ${i.name} (${i.qty})`).join('\n')}\n🚚 توصيل: ${session.delivery}د\n💰 الإجمالي: ${session.total} دينار`;
-            
-            await sendWA(SETTINGS.GROUP_ID, groupMsg);
-            await sendWA(chatId, "أبشر يا غالي، تم تأكيد طلبك وإرساله للمطعم بنجاح! ✅");
+            const summary = `🚨 طلب مؤكد:\nالعميل: ${chatId}\nالطلب: ${JSON.stringify(session.items)}\nالإجمالي: ${session.total}د`;
+            await sendWA(SETTINGS.GROUP_ID, summary);
+            await sendWA(chatId, "تم التأكيد يا غالي! ✅");
             delete SESSIONS[chatId];
             return;
         }
 
-        // الرد النصي النظيف للعميل مع السعر المحدث
-        const cleanReply = content.replace(/\[.*?\]/g, "").trim();
-        let finalReply = cleanReply || "على راسي يا غالي، شو بتحب تطلب؟";
-        
-        if (session.total > 0) {
-            finalReply += `\n\n💰 *المجموع الحالي: ${session.total} دينار*`;
-        }
-
-        await sendWA(chatId, finalReply);
+        const reply = content.replace(/\[.*?\]/g, "").trim() + (session.total > 0 ? `\n\nالمجموع: ${session.total}د` : "");
+        await sendWA(chatId, reply);
 
     } catch (e) { console.error("AI Error"); }
 });
 
-app.listen(3000, () => console.log("Saber Jo Bot is Live! 🚀"));
+app.listen(3000, () => console.log("🚀 BOT RUNNING"));
