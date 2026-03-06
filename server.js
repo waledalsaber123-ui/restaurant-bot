@@ -14,7 +14,7 @@ const CONFIG = {
     API_URL: `https://7103.api.greenapi.com/waInstance${process.env.ID_INSTANCE}`
 };
 
-// المنيو الأساسي
+// المنيو المعتمد
 const MENU = {
     "خابور كباب": { p: 2, img: "https://i.imgur.com/lhWRxlO.jpg" },
     "الوجبة العملاقة": { p: 3, img: "https://i.imgur.com/YBdJtXk.jpg" },
@@ -25,45 +25,43 @@ const MENU = {
 let SESSIONS = {};
 let DELIVERY_DATA = [];
 
+// تحميل أسعار التوصيل من الإكسل
 async function loadDelivery() {
     try {
         const res = await axios.get(CONFIG.DELIVERY_SHEET_URL);
         DELIVERY_DATA = await csv().fromString(res.data);
-    } catch (e) { console.error("CSV Load Error"); }
+    } catch (e) { console.error("خطأ في تحميل شيت التوصيل"); }
 }
 
 /* =========================================
-   الذكاء الاصطناعي: محرك تحليل النوايا (Intent Engine)
+   محرك تحليل اللهجة والأخطاء الإملائية
    ========================================= */
-async function processMessageAI(userMsg, session) {
-    const systemPrompt = `
-    أنت مندوب مبيعات ذكي جداً في مطعم. تفهم العامية والأخطاء الإملائية.
-    المنيو: ${Object.keys(MENU).join(", ")}.
-    
-    مهمتك:
-    1. إذا العميل يريد إضافة شيء (حتى لو أخطأ في الإملاء مثل "هات صاروخ")، استنتج الوجبة الصحيحة وأصدر الكود: [ADD:اسم_الوجبة:الكمية].
-    2. إذا طلب التوصيل لمنطقة، قارنها ببيانات التوصيل: ${JSON.stringify(DELIVERY_DATA.map(d => d.area))}. إذا وجدتها، أصدر الكود: [ZONE:اسم_المنطقة].
-    3. إذا أراد الحذف أو البدء من جديد، أصدر: [CLEAR].
-    4. كن مرحاً وقصيراً في ردك النصي.
-    5. سلة العميل الحالية: ${JSON.stringify(session.items)}.
+async function analyzeIntentAI(userMsg, session) {
+    const prompt = `
+    أنت مندوب مبيعات شاطر. المنيو: ${Object.keys(MENU).join(", ")}.
+    حلل رسالة العميل:
+    1. إذا طلب وجبة (حتى بلهجة عامية أو خطأ إملائي)، أضف: [ADD:اسم_الوجبة_الرسمي:الكمية].
+    2. إذا ذكر منطقة، قارنها بـ: ${JSON.stringify(DELIVERY_DATA.map(d => d.area))}. إذا طابقت، أضف: [ZONE:اسم_المنطقة].
+    3. إذا أراد البدء من جديد، أضف: [CLEAR].
+    4. رد عليه بكلمات قليلة جداً ومرحة.
+    5. سلة العميل حالياً: ${JSON.stringify(session.items)}.
     `;
 
     try {
         const res = await axios.post("https://api.openai.com/v1/chat/completions", {
             model: "gpt-4o-mini",
-            messages: [{ role: "system", content: systemPrompt }, { role: "user", content: userMsg }],
-            temperature: 0.3 // السماح بمرونة بسيطة لفهم الأخطاء الإملائية
+            messages: [{ role: "system", content: prompt }, { role: "user", content: userMsg }],
+            temperature: 0.1 // دقة عالية جداً لمنع الهلوسة
         }, { headers: { Authorization: `Bearer ${CONFIG.OPENAI_KEY}` } });
-
         return res.data.choices[0].message.content;
-    } catch (e) { return "أهلاً بك! كيف أقدر أخدمك اليوم؟"; }
+    } catch (e) { return "أهلاً بك! كيف أقدر أساعدك؟"; }
 }
 
 const sendMsg = (id, message) => axios.post(`${CONFIG.API_URL}/sendMessage/${CONFIG.GREEN_TOKEN}`, { chatId: id, message });
-const sendImg = (id, url, caption) => axios.post(`${CONFIG.API_URL}/sendFileByUrl/${CONFIG.GREEN_TOKEN}`, { chatId: id, urlFile: url, fileName: "food.jpg", caption });
+const sendImg = (id, url, caption) => axios.post(`${CONFIG.API_URL}/sendFileByUrl/${CONFIG.GREEN_TOKEN}`, { chatId: id, urlFile: url, fileName: "meal.jpg", caption });
 
 /* =========================================
-   المعالجة الرئيسية
+   المعالج الرئيسي (Webhook)
    ========================================= */
 app.post("/webhook", async (req, res) => {
     res.sendStatus(200);
@@ -77,56 +75,52 @@ app.post("/webhook", async (req, res) => {
 
     await loadDelivery();
 
-    // 1. معالجة التأكيد اليدوي
+    // 1. ترحيل الطلب للجروب عند التأكيد
     if (userMsg.includes("تأكيد") || userMsg.includes("اكد")) {
         const subTotal = session.items.reduce((s, i) => s + (i.p * i.q), 0);
-        if (subTotal === 0) return sendMsg(chatId, "سلتك فارغة يا غالي! شو حابب تاكل؟");
+        if (subTotal === 0) return sendMsg(chatId, "سلتك فاضية يا غالي!");
         
         const total = subTotal + session.deliveryFee;
         const summary = session.items.map(i => `• ${i.name} (${i.q})`).join("\n");
-        const orderMsg = `🆕 *طلب جديد*\n👤 العميل: ${chatId}\n📍 المنطقة: ${session.area || "غير محدد"}\n🛒 الأصناف:\n${summary}\n💰 المجموع: ${total} دينار`;
+        const finalOrder = `📦 *طلب جديد مؤكد*\n👤 العميل: ${chatId}\n📍 المنطقة: ${session.area || "لم تحدد"}\n🛒 الطلب:\n${summary}\n💰 المجموع: ${total} دينار`;
         
-        await sendMsg(CONFIG.ORDER_GROUP_ID, orderMsg);
+        await sendMsg(CONFIG.ORDER_GROUP_ID, finalOrder);
         session.items = []; session.area = null;
-        return sendMsg(chatId, "✅ أبشر، طلبك وصل للمطعم وهلا بنجهزه!");
+        return sendMsg(chatId, "✅ أبشر! طلبك صار عند المطعم.");
     }
 
-    // 2. معالجة الرسالة عبر الذكاء الاصطناعي
-    const aiRes = await processMessageAI(userMsg, session);
+    // 2. تحليل الرسالة بالذكاء الاصطناعي
+    const aiResponse = await analyzeIntentAI(userMsg, session);
 
-    // فحص الأكواد المستخرجة
-    if (aiRes.includes("[CLEAR]")) session.items = [];
+    // تنفيذ الأوامر المستخرجة
+    if (aiResponse.includes("[CLEAR]")) session.items = [];
     
-    if (aiRes.includes("[ZONE:")) {
-        const zoneName = aiRes.match(/\[ZONE:(.*?)\]/)[1];
-        const zoneObj = DELIVERY_DATA.find(d => d.area === zoneName);
-        if (zoneObj) {
-            session.area = zoneName;
-            session.deliveryFee = parseFloat(zoneObj.price);
-        }
+    if (aiResponse.includes("[ZONE:")) {
+        const zone = aiResponse.match(/\[ZONE:(.*?)\]/)[1];
+        const found = DELIVERY_DATA.find(d => d.area === zone);
+        if (found) { session.area = zone; session.deliveryFee = parseFloat(found.price); }
     }
 
-    if (aiRes.includes("[ADD:")) {
-        const match = aiRes.match(/\[ADD:(.*?):(\d+)\]/);
+    if (aiResponse.includes("[ADD:")) {
+        const match = aiResponse.match(/\[ADD:(.*?):(\d+)\]/);
         if (match) {
-            const name = match[1].trim();
-            const qty = parseInt(match[2]);
+            const name = match[1]; const qty = parseInt(match[2]);
             if (MENU[name]) {
                 session.items.push({ name, p: MENU[name].p, q: qty });
-                await sendImg(chatId, MENU[name].img, `تمت إضافة ${name} ✅`);
+                await sendImg(chatId, MENU[name].img, `تم إضافة ${name} لسلتك 😋`);
             }
         }
     }
 
-    // تنظيف الرد النهائي
-    let cleanText = aiRes.replace(/\[.*?\]/g, "").trim();
-    const subTotal = session.items.reduce((s, i) => s + (i.p * i.q), 0);
+    // بناء الرد النهائي
+    let reply = aiResponse.replace(/\[.*?\]/g, "").trim();
+    const currentSubtotal = session.items.reduce((s, i) => s + (i.p * i.q), 0);
 
-    if (subTotal > 0) {
-        cleanText += `\n\n🛒 سلتك: ${subTotal} د\n🚚 توصيل (${session.area || "حدد منطقتك"}): ${session.deliveryFee} د\n💰 المجموع: ${subTotal + session.deliveryFee} دينار\n(اكتب "تأكيد" لإتمام الطلب)`;
+    if (currentSubtotal > 0) {
+        reply += `\n\n🛒 حسابك: ${currentSubtotal}د\n🚚 توصيل: ${session.deliveryFee}د\n💰 المجموع: ${currentSubtotal + session.deliveryFee} دينار\n(اكتب "تأكيد" للطلب)`;
     }
 
-    await sendMsg(chatId, cleanText);
+    await sendMsg(chatId, reply);
 });
 
-app.listen(
+app.listen(3000);
