@@ -1,6 +1,5 @@
 import express from "express";
 import axios from "axios";
-import csv from "csvtojson";
 
 const app = express();
 app.use(express.json());
@@ -10,7 +9,6 @@ const SETTINGS = {
   GREEN_TOKEN: process.env.GREEN_TOKEN,
   ID_INSTANCE: process.env.ID_INSTANCE,
   KITCHEN_GROUP: "120363407952234395@g.us", // جروب المطبخ
-  SHEET_URL: process.env.DELIVERY_SHEET, // رابط أسعار التوصيل
   API_URL: `https://7103.api.greenapi.com/waInstance${process.env.ID_INSTANCE}`
 };
 
@@ -37,17 +35,23 @@ app.post("/webhook", async (req, res) => {
   if (!SESSIONS[chatId]) SESSIONS[chatId] = { history: [] };
   const session = SESSIONS[chatId];
 
-  // البرومبت المختصر والقوي
+  // البرومبت يحتوي على كل المنيو والعروض وأسعار التوصيل
   const systemPrompt = `
-أنت مندوب Saber Jo Snack. ردودك قصيرة جداً (كلمتين وبس).
+أنت مندوب مبيعات Saber Jo Snack. ردودك مختصرة جداً (شعبنا ما بحب يقرأ).
 
-📍 الموقع: طلوع هافانا، شارع الجامعة. الرابط: (https://maps.app.goo.gl/NdFQY67DEnsWQdKZ9)
-🚚 أسعار التوصيل: اعتمد السعر من الرابط المرفق (SHEET_URL) ولا تخترع أسعار.
+🍔 المنيو والعروض (من البرومبت):
+- ديناميت 45 سم (1د) | صاروخ شاورما (1.5د) | قنبلة رمضان برجر 250غم (2.25د) | خابور كباب (2د).
+- وجبات عائلية: اقتصادية (7د)، عائلية (10د)، عملاقة (14د).
+- قاعدة الوجبة: أي ساندويش بصير وجبة بزيادة (1د).
 
-💰 المنيو السريع: ديناميت (1د)، صاروخ (1.5د)، قنبلة (2.25د)، خابور (2د). ساندويش (1.5د)، وجبة (2د).
+🚚 أسعار التوصيل: اعتمد الأسعار الموجودة في ملف التوصيل المرفق ولا تخمن.
+📍 الموقع: طلوع هافانا، شارع الجامعة. (http://googleusercontent.com/maps.google.gl/NdFQY67DEnswQdKZ9)
 
-⚠️ قاعدة الترحيل الإجبارية:
-أول ما العميل يقول "تم" أو "أكد"، أرسل الكود [KITCHEN_GO] فوراً متبوعاً بملخص الطلب، الاسم، والمنطقة للجروب.
+⚠️ نظام الترحيل الإجباري:
+عندما يقول العميل "تم" أو "أكد"، أرسل فوراً [KITCHEN_GO] مع:
+🔔 طلب جديد
+👤 الاسم: [الاسم] | 📱 الهاتف: [الهاتف]
+📝 الطلب: [التفاصيل] | التوصيل: [المنطقة] | المجموع: [المجموع].
 `;
 
   try {
@@ -63,10 +67,10 @@ app.post("/webhook", async (req, res) => {
 
     let aiReply = aiRes.data.choices[0].message.content;
 
-    // الإرسال الإجباري للمطبخ عند تأكيد الطلب
+    // ترحيل الطلب للجروب
     if (aiReply.includes("[KITCHEN_GO]")) {
       const finalOrder = aiReply.replace("[KITCHEN_GO]", "").trim();
-      await sendWA(SETTINGS.KITCHEN_GROUP, `🔔 طلب جديد معتمد:\n${finalOrder}`);
+      await sendWA(SETTINGS.KITCHEN_GROUP, finalOrder);
       await sendWA(chatId, "أبشر، طلبك صار بالمطبخ! ✅");
       delete SESSIONS[chatId];
       return;
