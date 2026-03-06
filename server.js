@@ -7,7 +7,7 @@ import path from "path";
 const app = express();
 app.use(express.json());
 
-/* ================= الإعدادات الحساسة ================= */
+/* ================= الإعدادات ================= */
 const SETTINGS = {
   OPENAI_KEY: process.env.OPENAI_KEY,
   GREEN_TOKEN: process.env.GREEN_TOKEN,
@@ -18,27 +18,34 @@ const SETTINGS = {
 
 const SESSIONS = {};
 
-/* ================= قاعدة بيانات المطعم الصارمة ================= */
+/* ================= قاعدة البيانات الشاملة (المنيو + المناطق + الموقع) ================= */
 const DATA = {
-  INFO: `📍 الموقع: عمان - شارع الجامعة الأردنية - طلوع هافانا.
+  INFO: `
+📍 الموقع: عمان - شارع الجامعة الأردنية - طلوع هافانا.
+🗺️ رابط الموقع: https://maps.google.com/?q=32.0155,35.8675
 ⏰ الدوام: 2:00 م - 3:30 فجراً.
-⏱️ مدة التوصيل الثابتة: 30-45 دقيقة.`,
-  
-  MENU: `
-[أسعار الأصناف - نهائية]
-- ساندويش فردي (سكالوب/زنجر/برجر): 1.50 دينار.
-- وجبة فردية (ساندويش + بطاطا): 2.00 دينار.
-- زنجر ديناميت (45 سم): ساندويش 1.00 دينار | وجبة 2.00 دينار.
-- صاروخ شاورما (45 سم): 1.50 دينار.
-- خابور كباب (45 سم): 2.00 دينار.
-- وجبات الشاورما: عادي 2.00 | سوبر 2.75 | دبل 3.25 | تربل 4.00.
-- الصدور العائلية: أبو 6 (6 دنانير) | أبو 9 (9 دنانير).
-- سناكات اقتصادية: 4 سندويش + 2 بطاطا + مشروب = 7.00 دنانير.
-- سناكات عائلية: 6 سندويش + 4 بطاطا + 2 مشروب = 10.00 دنانير.
-- سناكات عملاقة: 9 سندويش + 6 بطاطا + 3 مشروب = 14.00 دينار.`,
+⏱️ مدة التوصيل: 30-45 دقيقة.`,
 
-  DELIVERY: `
-[رسوم التوصيل الثابتة - يمنع التغيير]
+  MENU: `
+[1. الوجبات العائلية والصدور - تشمل بطاطا]
+- صدر شاورما أبو 6: 6.00 دنانير (6 سندويشات + بطاطا).
+- صدر شاورما أبو 9 (الأوفر): 9.00 دنانير (8 سندويشات + بطاطا عائلي كبير).
+- سناكات اقتصادية: 7.00 دنانير (4 سندويش: سكالوب/برجر/زنجر + 2 بطاطا + مشروب).
+- سناكات عائلية: 10.00 دنانير (6 سندويش + 4 بطاطا + 2 مشروب).
+- سناكات عملاقة: 14.00 دينار (9 سندويش + 6 بطاطا + 3 مشروب).
+
+[2. الأصناف الفردية - الساندويش لا يشمل بطاطا / الوجبة تشمل]
+- زنجر ديناميت (45 سم): ساندويش 1.00 | وجبة 2.00.
+- ساندويش فردي (سكالوب/زنجر/برجر): 1.50 دينار.
+- وجبة فردية (سكالوب/زنجر/برجر + بطاطا): 2.00 دينار.
+- صاروخ شاورما (45 سم): 1.50 دينار.
+- قنبلة رمضان (برجر 250غم): 2.25 دينار.
+- خابور كباب (45 سم): 2.00 دينار.
+- وجبات الشاورما: عادي 2.00 | سوبر 2.75 | دبل 3.25 | تربل 4.00.`,
+
+  DELIVERY_ZONES: `
+[رسوم التوصيل الثابتة - يمنع تغييرها]
+- 0.00: في حال (الاستلام من المطعم).
 - 1.50: صويلح، الدوريات، مجدي مول.
 - 2.00: تلاع العلي، شارع الجامعة، الجبيهة، الرشيد، المدينة الرياضية، جبل الحسين، نفق الصحافة، مكة مول، ستي مول، المدينة المنورة، ضاحية الاستقلال.
 - 2.50: دابوق، أبو نصير، الجاردنز، الشميساني، العبدلي، اللويبدة، وادي صقرة، مجمع الاعمال، خلدا، ام السماق، المدينة الطبية.
@@ -47,64 +54,65 @@ const DATA = {
 };
 
 const SYSTEM_PROMPT = `
-أنت "صابر"، نظام استقبال حجوزات احترافي. التزم بالقوانين التالية حرفياً:
-1. **ممنوع كلمة "تقريباً"**: الأسعار نهائية كما هي في المنيو.
-2. **تسلسل الرد**:
-   أ- حصر الطلب (تمييز الساندويش عن الوجبة).
-   ب- حساب المجموع الفرعي للأصناف.
-   ج- سؤال الزبون عن المنطقة لتحديد رسوم التوصيل من القائمة.
-   د- إعطاء المجموع الكلي النهائي.
-   هـ- طلب (الاسم، الرقم، العنوان) في رسالة واحدة فقط بعد موافقة العميل على السعر.
-3. **التوصيل لـ طبربور**: السعر ثابت وهو 3.00 دنانير دائماً.
-4. **البيانات الشخصية**: إذا أعطاك العميل اسمه ومنطقته، لا تكرر طلب "العنوان التفصيلي" بشكل مزعج، فقط أكد الطلب.
-5. **Kitchen Tag**: لا تضع [KITCHEN_GO] إلا في الملخص النهائي المؤكد الذي يحتوي على كل البيانات.
+أنت "صابر"، المساعد الذكي لمطعم شاورما. التزم حرفياً بما يلي:
+1. **الاستلام**: إذا طلب الزبون "استلام"، السعر 0 والتوصيل يسقط. اطلب (الاسم والرقم) فقط.
+2. **التوصيل**: إذا طلب "توصيل"، ابحث عن منطقته في القائمة. طبربور دائماً 3.00 دنانير. اطلب (الاسم، الرقم، العنوان).
+3. **الحساب**: اجمع الأصناف بدقة (الوجبة غير الساندويش). اعطِ المجموع النهائي بكلمة "دينار" وليس "تقريباً".
+4. **الصور**: إذا أرسل العميل صورة، حللها كطلب أو وصل دفع.
+5. **Kitchen Tag**: أرسل [KITCHEN_GO] فقط في الملخص النهائي بعد موافقة العميل.
 `;
 
-/* ================= المعالجة والذكاء الاصطناعي ================= */
+/* ================= معالجة الطلبات ================= */
 
 app.post("/webhook", async (req, res) => {
   res.sendStatus(200);
   const body = req.body;
-  let text = "";
   let chatId = body.senderData?.chatId;
+  let userContent = [];
 
+  if (!chatId) return;
+  if (!SESSIONS[chatId]) SESSIONS[chatId] = { history: [] };
+
+  // التعامل مع النصوص، الصوت، والصور
   if (body.typeWebhook === "incomingMessageReceived") {
-    text = body.messageData?.textMessageData?.textMessage || body.messageData?.extendedTextMessageData?.text || "";
+    let text = body.messageData?.textMessageData?.textMessage || body.messageData?.extendedTextMessageData?.text || "";
+    userContent.push({ type: "text", text: text });
   } else if (body.typeWebhook === "incomingFileMessageReceived" && body.messageData?.fileMessageData?.mimeType?.includes("audio")) {
-    text = await transcribeVoice(body.messageData.fileMessageData.downloadUrl);
+    let voiceText = await transcribeVoice(body.messageData.fileMessageData.downloadUrl);
+    userContent.push({ type: "text", text: voiceText });
+  } else if (body.typeWebhook === "incomingFileMessageReceived" && body.messageData?.fileMessageData?.mimeType?.includes("image")) {
+    userContent.push({ type: "image_url", image_url: { url: body.messageData.fileMessageData.downloadUrl } });
+    userContent.push({ type: "text", text: "ماذا يوجد في هذه الصورة؟ إذا كان طلباً استخرجه." });
   }
 
-  if (!chatId || !text.trim()) return;
-  if (!SESSIONS[chatId]) SESSIONS[chatId] = { history: [] };
-  const session = SESSIONS[chatId];
+  if (userContent.length === 0) return;
 
   try {
     const ai = await axios.post("https://api.openai.com/v1/chat/completions", {
-      model: "gpt-4o-mini",
+      model: "gpt-4o",
       messages: [
-        { role: "system", content: SYSTEM_PROMPT + "\n" + DATA.INFO + "\n" + DATA.MENU + "\n" + DATA.DELIVERY },
-        ...session.history.slice(-15), // ذاكرة أقصر لتركيز أعلى
-        { role: "user", content: text }
+        { role: "system", content: SYSTEM_PROMPT + "\n" + DATA.INFO + "\n" + DATA.MENU + "\n" + DATA.DELIVERY_ZONES },
+        ...SESSIONS[chatId].history.slice(-12),
+        { role: "user", content: userContent }
       ],
-      temperature: 0 // لضمان عدم التأليف والالتزام بالأرقام
+      temperature: 0
     }, { headers: { Authorization: `Bearer ${SETTINGS.OPENAI_KEY}` } });
 
     let reply = ai.data.choices[0].message.content;
 
     if (reply.includes("[KITCHEN_GO]")) {
-        const cleanMsg = reply.replace("[KITCHEN_GO]", "✅ *طلب جديد مؤكد*").trim();
-        await sendWA(SETTINGS.KITCHEN_GROUP, cleanMsg);
-        await sendWA(chatId, "أبشر يا غالي، تم اعتماد طلبك وارساله للمطبخ. نورتنا! 🙏");
-        delete SESSIONS[chatId];
-        return;
+      await sendWA(SETTINGS.KITCHEN_GROUP, reply.replace("[KITCHEN_GO]", "🔥 *طلب جديد معتمد*"));
+      await sendWA(chatId, "تم! طلبك صار عند المعلم بالمطبخ. نورتنا يا غالي! 🙏");
+      delete SESSIONS[chatId];
+      return;
     }
 
     await sendWA(chatId, reply);
-    session.history.push({ role: "user", content: text }, { role: "assistant", content: reply });
-  } catch (err) { console.error("AI Error"); }
+    SESSIONS[chatId].history.push({ role: "user", content: "رسالة عميل" }, { role: "assistant", content: reply });
+  } catch (err) { console.error("Error"); }
 });
 
-/* ================= الوظائف المساعدة ================= */
+/* ================= وظائف مساعدة ================= */
 
 async function sendWA(chatId, message) {
   try { await axios.post(`${SETTINGS.API_URL}/sendMessage/${SETTINGS.GREEN_TOKEN}`, { chatId, message }); } catch (err) {}
@@ -113,18 +121,17 @@ async function sendWA(chatId, message) {
 async function transcribeVoice(url) {
   try {
     const response = await axios.get(url, { responseType: 'arraybuffer' });
-    const buffer = Buffer.from(response.data);
     const filePath = path.join("/tmp", `v_${Date.now()}.ogg`);
-    fs.writeFileSync(filePath, buffer);
+    fs.writeFileSync(filePath, Buffer.from(response.data));
     const formData = new FormData();
     formData.append("file", fs.createReadStream(filePath));
     formData.append("model", "whisper-1");
-    const whisper = await axios.post("https://api.openai.com/v1/audio/transcriptions", formData, {
+    const res = await axios.post("https://api.openai.com/v1/audio/transcriptions", formData, {
       headers: { ...formData.getHeaders(), Authorization: `Bearer ${SETTINGS.OPENAI_KEY}` }
     });
     fs.unlinkSync(filePath);
-    return whisper.data.text;
+    return res.data.text;
   } catch (err) { return ""; }
 }
 
-app.listen(3000, () => console.log("Professional Saber Bot Online"));
+app.listen(3000, () => console.log("Saber Bot Full & Vision Ready"));
