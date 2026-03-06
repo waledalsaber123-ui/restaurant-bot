@@ -1,8 +1,5 @@
 import express from "express";
 import axios from "axios";
-import fs from "fs";
-import FormData from "form-data";
-import path from "path";
 
 const app = express();
 app.use(express.json());
@@ -19,81 +16,88 @@ const SETTINGS = {
 
 const SESSIONS = {};
 
+const getJordanTime = () => {
+  return new Intl.DateTimeFormat('ar-JO', {
+    timeZone: 'Asia/Amman', hour: '2-digit', minute: '2-digit', hour12: true,
+    weekday: 'long', day: 'numeric', month: 'long'
+  }).format(new Date());
+};
+
 const getSystemPrompt = () => {
   return `
-أنت "صابر". موظف استقبال مطعم شاورما. ردودك قصيرة، أردنية، وذكية جداً.
+أنت "صابر". موظف استقبال مطعم شاورما أردني.
+الوقت الآن: ${getJordanTime()}
 
-⏰ **الدوام**: من 2 ظهراً لـ 4 فجراً.
-📅 **نظام الحجز**: متاح لدينا حجز الطلبات مسبقاً وتحديد موعد لاحق للتوصيل أو الاستلام.
+⚠️ **أوامر برمجية صارمة لمنع التكرار**:
+1. **لا ترحب مرتين**: إذا العميل أصلاً بيطلب، كمل معه ولا تعيد "أهلين كيف بقدر أساعدك".
+2. **الذاكرة**: تذكر الأصناف (قنبلة، خابور، زنجر). إذا حددها، لا ترجع تسأل "شو طلبك".
+3. **الحجز**: متاح. إذا طلب حجز لموعد لاحق، ثبته فوراً.
+4. **الصور**: حلل الصورة فوراً كعرض أو طلب.
+5. **الملخص**: السعر النهائي شامل التوصيل (طبربور دائماً 3د).
+6. **النهاية**: أرسل [KITCHEN_GO] فقط عند التأكيد النهائي.
 
-🍔 **المنيو**:
-${SETTINGS.DYNAMIC_MENU}
-
-🚚 **التوصيل**:
-${SETTINGS.DYNAMIC_DELIVERY}
-
-⚠️ **تعليمات الحجز والطلبات**:
-1. **قبول الحجز**: إذا طلب العميل حجزاً أو تحديد موعد توصيل، وافق فوراً واسأله عن (الوقت المطلوب).
-2. **تفاصيل الحجز**: يجب أن يتضمن الملخص النهائي: (الأصناف، المجموع، موعد التوصيل/الحجز، الاسم، الرقم، العنوان).
-3. **الصور**: حلل أي صورة عرض يرسلها العميل ولا تنكر وجودها.
-4. **الدقة**: طبربور دائماً 3 دنانير.
-5. **الملخص**: أرسل [KITCHEN_GO] فقط عند التأكيد النهائي، وتأكد من كتابة "موعد الحجز: [الوقت]" بوضوح.
+📋 المنيو: ${SETTINGS.DYNAMIC_MENU}
+🚚 التوصيل: ${SETTINGS.DYNAMIC_DELIVERY}
 `;
 };
 
 app.post("/webhook", async (req, res) => {
   res.sendStatus(200);
   const body = req.body;
-  let chatId = body.senderData?.chatId;
+  const chatId = body.senderData?.chatId;
 
-  if (!chatId || chatId.endsWith("@g.us")) return;
+  // 1. تجاهل الجروبات والرسائل التلقائية (منع التكرار اللانهائي)
+  if (!chatId || chatId.endsWith("@g.us") || body.senderData?.senderName === "رسالة تلقائية") return;
 
-  if (!SESSIONS[chatId]) SESSIONS[chatId] = { history: [] };
-  const session = SESSIONS[chatId];
-
+  if (!SESSIONS[chatId]) SESSIONS[chatId] = [];
+  
   let userContent = [];
+  let logText = "";
 
-  // معالجة الصور
+  // 2. فحص نوع الرسالة (صورة أو نص)
   if (body.typeWebhook === "incomingFileMessageReceived" && body.messageData?.fileMessageData?.mimeType?.includes("image")) {
     userContent.push({ type: "image_url", image_url: { url: body.messageData.fileMessageData.downloadUrl } });
-    userContent.push({ type: "text", text: "حلل الصورة للطلب أو العرض." });
-  } 
-  // معالجة الفويس والنص
-  else {
-    const text = body.messageData?.textMessageData?.textMessage || body.messageData?.extendedTextMessageData?.text || "";
-    if (text) userContent.push({ type: "text", text: text });
+    userContent.push({ type: "text", text: "حلل الصورة للطلب." });
+    logText = "[صورة]";
+  } else {
+    logText = body.messageData?.textMessageData?.textMessage || body.messageData?.extendedTextMessageData?.text || "";
+    if (!logText || logText.includes("عرض التفاصيل")) return; // تجاهل رسائل النظام
+    userContent.push({ type: "text", text: logText });
   }
-
-  if (userContent.length === 0) return;
 
   try {
     const ai = await axios.post("https://api.openai.com/v1/chat/completions", {
       model: "gpt-4o",
       messages: [
         { role: "system", content: getSystemPrompt() },
-        ...session.history.slice(-40),
+        ...SESSIONS[chatId].slice(-10), // الاحتفاظ بآخر 10 رسائل فقط لتركيز الذاكرة
         { role: "user", content: userContent }
       ],
-      temperature: 0
+      temperature: 0 // تصفير الحرارة لمنع الهلوسة والتكرار
     }, { headers: { Authorization: `Bearer ${SETTINGS.OPENAI_KEY}` } });
 
     let reply = ai.data.choices[0].message.content;
 
+    // 3. منع إرسال رسائل ترحيبية إذا كانت المحادثة مستمرة
+    if (SESSIONS[chatId].length > 0 && (reply.includes("أهلين") || reply.includes("بقدر أساعدك"))) {
+       reply = reply.replace(/أهلين.*ساعدك؟/g, "").trim(); 
+       if (!reply) return; // منع إرسال رسالة فارغة
+    }
+
     if (reply.includes("[KITCHEN_GO]")) {
-      // إرسال تفاصيل الحجز كاملة للمطبخ
-      await sendWA(SETTINGS.KITCHEN_GROUP, reply.replace("[KITCHEN_GO]", "📅 *حجز/طلب جديد مؤكد*"));
-      await sendWA(chatId, "تم تثبيت حجزك وطلبك يا غالي. نورتنا! 🙏");
-      delete SESSIONS[chatId];
+      await sendWA(SETTINGS.KITCHEN_GROUP, reply.replace("[KITCHEN_GO]", "🔔 *طلب مؤكد*"));
+      await sendWA(chatId, "تم تثبيت طلبك يا غالي، نورتنا! 🙏");
+      SESSIONS[chatId] = [];
       return;
     }
 
     await sendWA(chatId, reply);
-    session.history.push({ role: "user", content: "طلب/استفسار عميل" }, { role: "assistant", content: reply });
-  } catch (err) { console.error("Saber Error"); }
+    SESSIONS[chatId].push({ role: "user", content: logText }, { role: "assistant", content: reply });
+  } catch (err) { console.error("AI Error Logged"); }
 });
 
 async function sendWA(chatId, message) {
   try { await axios.post(`${SETTINGS.API_URL}/sendMessage/${SETTINGS.GREEN_TOKEN}`, { chatId, message }); } catch (err) {}
 }
 
-app.listen(3000, () => console.log("Saber Booking System Online"));
+app.listen(3000, () => console.log("Saber Loop-Fix Active"));
