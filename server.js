@@ -5,195 +5,183 @@ const app = express();
 app.use(express.json());
 
 /* ================= SETTINGS ================= */
-
 const SETTINGS = {
   OPENAI_KEY: process.env.OPENAI_KEY,
   GREEN_TOKEN: process.env.GREEN_TOKEN,
   ID_INSTANCE: process.env.ID_INSTANCE,
-  SYSTEM_PROMPT: process.env.SYSTEM_PROMPT,
-  KITCHEN_GROUP: "120363407952234395@g.us",
+  KITCHEN_GROUP: "120363407952234395@g.us", // ضع جروب المطبخ هنا
   API_URL: `https://7103.api.greenapi.com/waInstance${process.env.ID_INSTANCE}`
 };
 
 /* ================= SESSION MEMORY ================= */
-
 const SESSIONS = {};
-const SESSION_TIMEOUT = 30 * 60 * 1000; // 30 minutes
+const SESSION_TIMEOUT = 30 * 60 * 1000; // 30 دقيقة
 
-/* ================= SEND WHATSAPP ================= */
+/* ================= DATA BASE (المعلومات المرجعية) ================= */
 
+// المنيو تمت إضافته حرفياً كما أرسلته بدون أي تعديل
+const MENU_DATA = `
+الوجبات العائلية 
+الوجبة الاقتصادية  سناكات 7 دنانير تحتوي على 4 سندويشات 2 سكالوب و 1 برجر 150 غم 1 زنجر و 2 بطاطا و 1 لتر مشروب غازي 
+الوجبة العائلية سناكات 10 دنانير 6 تحتوي على 6 سندويشات 2 سكالوب 2 زنجر 2 برجر 150 غم 4 بطاطا 2 لتر مشروب غازي 
+الوجبة العملاقة سناكات 14 دينار تحتوي على 9 سندويشات 3 سكالوب 3 زنجر 3 برجر 150 جرام 6 بطاطا 3 لتر مشروب غازي 
+وجبة الشاورما الاقتصادية 6 دنانير تحتوي  6 سندويشات شورما ما يعادل 48 قطعه بطاطا عائلي  تائتي  صدر  
+وجبة الشاورما العائلي ( الاوفر) 9 دنانير 8 سندويشات 72 قطعه  و بطاطا عائلي كبير  تائتي ب صدر
+الوجبات الفردية 
+وجبة سكالوب ساندويش سكالوب و بطاطا 2 دينار 
+وجبة زنجر ساندويش زنجر بطاطا 2 دينار 
+وجبة برجر 150 غم ساندويش برجر و بطاطا 2 دينار 
+وجبة شاورما عادي 2  دينار 
+وجبة شاورما سوبر  2.75 دينار 
+وجبة شاورما دبل 3.25 دينار 
+وجبة شاورما تربل 4 دينار 
+الاضافات 
+بطاطا 1 دينار 
+بطاطا عائلي 3 نانير 
+بطاطا جامبو 6 دنانير 
+اضفة جبنة 0.5 دينار 
+مشروب غازي 250  مل 35 قرش 
+مشروب غازي لتر 50 قرش 
+العروض الي نركز عليها اكتر شي و نرفع منها سلة الشراء 
+ساندويش ديناميت 45 سم متوسط الحرارة مناسب للاطفال و الكبار 1 دينار 
+صاروخ الشاورما 45 سم 1.5 دينار 
+قمبلة رمضان ( برجر 250 جرام ) ارتفاعها 17 سم تقريبا بسعر 2.25 
+خابور كباب ساندويش كباب طول 45 سم يحتوي على كباب بوزن 200 الى 250 غم و خلصه خاصه بسعر 2 دينار 
+الندويشات 
+ساندويش  سكالوب 1.5
+ساندويش  زنجر 1.5 
+ساندويش  برجر 150 غم 1.5 
+ساندويش شاورما عادي 1 دينار 
+ساندويش شاورما سوبر 1.5 دينار 
+ملاحطة لتحويل العروض و السندويشات الى وجبات ضيف دينار
+`;
+
+// تم ترتيب المناطق بذكاء لتسهيل البحث على الذكاء الاصطناعي ومنع الأخطاء
+const DELIVERY_DATA = `
+1.5 دينار: اشارة الدوريات, صويلح, مجدي مول, كلية المجتمع العربي
+1.75 دينار: المختار مول, طلوع نيفين
+2 دينار: شارع الجامعة الاردنية, الجامعة الاردنية, ضاحية الرشيد, حي الجامعة, الجبيهة, ابن عوف, حي الديوان, الكمالية, المدينة الرياضية, ضاحية الروضة, تلاع العلي, تلاع العلي الشمالي, حي الخالدلين, جبل الحسين, المستشفى التخصصي, مستشفى الامل, دوار الداخلية, مستشفى العيون التخصصي, مكة مول, دوار الواحة, مشفى الحرمين, ضاحية الاستقلال, شارع المدينة المنورة, ستي مول, نفق الصحافة, صافوط
+2.25 دينار: حي البركة, الرابية, دوار الكيلو, دوار خلدا
+2.5 دينار: الديار, السهل, الروابي, ام اذينة, الصالحين, المستشفى الإسلامي, خلدا, ام السماق, المدينة الطبية, شارع المدينة الطبية, دابوق, ابو نصير, حي الزيتونة, حي المنصور, الجاردنز, شارع وصفي التل, الشميساني, وادي صقرة, اللويبدة, العبدلي, جبل القلعة, وادي الحدادة, عرجان, ضاحية الروضة, ضاحية الامير حسن, الذراع الغربي, استقلال مول, اسكان الصيادلة, ضاحية الفاروق, وزارة الثقافة, السفارة الصينية, دائرة الافتاء, مجمع الاعمال, مدارس الاتحاد, ضاحية الامير راشد, مستشفى عبدالهادي, مستشفى فرح, جامعة العلوم الاسلامية, مستشفى الرويال, دوار المدينة الطبية, دوار الشعب
+2.75 دينار: شارع مكة, دوار المشاغل, شارع عبدالله غوشة, مجمع جبر, مخيم الحسين
+3 دينار: الفحيص, الدوار الأول, الدوار الثاني, الدوار الثالث, الدوار الرابع, الدوار الخامس, الدوار السادس, الدوار السابع, الدوار الثامن, جبل عمان, عبدون, دير غبار, الصويفية, الرونق, عين الباشا, الجندويل, الكرسي, شفا بدران, جامعة العلوم التطبيقية, الكوم, مستشفى الاردن, جبل الزهور, جبل النزهه, جبل القصور, ضاحية الاقصى, شارع الاذاعة, جبل النظيف, مجمع المحطة, الجبل الاخضر, شارع الاستقلال, راس العين, المهاجرين, حي الصحابة, ضاحية النخيل, كلية لومينوس, مستشفى الملكة علياء, شارع الامير محمد, حي الرحمانية, عريفة مول, حي الرونق, مستشفى الامير حمزة, مركز السكري, المصدار, قرية النخيل, شارع عرار, السفارة الامريكية, عمان مول, ياسر مول, مستشفى الخالدي, البقعة
+3.5 دينار: البيادر, طريق المطار, وسط البلد, شارع الحرية, المقابلين, الهاشمي الشمالي, الهاشمي الجنوبي, مستشفى البشير, ضاحية الياسمين, ربوة عبدون, طبربور, جبل المريخ, حي الصديق, مستشفى الحياة
+3.6 دينار: مرج الحمام
+4 دينار: وادي السير, الرباحية, مرج الفرس, المستندة, ماركا الجنوبية, خريبة السوق, اليادوده, البنيات, ضاحية الحاج حسن, جبل التاج, جبل الجوفة, الوحدات, وادي الرمم, العلكومية, الجويده, ماركا الشمالية, ابو علندا, القويسمة, ام نوارة, جبل المناره, حي عدن, كلية حطين, دوار الجمرك, دوار الشرق الاوسط, الاشرفية, ام الحيران, دوار الحمايدة, جاوا, جبل النصر, صالحية العابد, الرجيب, طارق المطار, جبل الحديد, محكمة جنوب عمان, السوق المركزي, ضاحية الامير علي, جامعة البترا, الحرشة, ام قصير, شارع الحزام, نادي السباق, مستشفى ماركا التخصصي, مستشفى ماركا العسكري, حي الارمن, حي الطفايلة, الظهير, مدارس الحصاد التربوي, المرقب, ابو السوس, جامعة عمان المفتوحة
+5 دينار: عراق الامير
+ملاحظة هامة جداً: شارع الاردن (يحسب حسب المسافة فقط).
+أي منطقة غير موجودة بالقائمة السابقة تعتبر (التوصيل غير متاح لها).
+`;
+
+const SYSTEM_PROMPT = `
+أنت مساعد آلي ذكي وسريع لمطعم Saber Jo Snack (صابر جو سناك).
+مهمتك استلام الطلبات من الزبائن باحترافية وبلهجة أردنية ودودة.
+
+[قواعد صارمة جداً]
+1. إياك أن تعرض المنيو كاملاً في رسالة واحدة أبداً. اسأل الزبون أولاً (حابب تشوف العروض ولا الوجبات العائلية ولا السندويشات؟) واعرض له القسم الذي يطلبه فقط.
+2. لا تخترع أسعاراً ولا أصنافاً من عندك. التزم فقط بالموجود في [المنيو].
+3. العروض هي أهم شيء، ركز عليها إذا طلب الزبون اقتراحات.
+4. ملاحظة السندويشات: إضافة 1 دينار تحول الساندويش لوجبة (بطاطا ومشروب).
+
+[خطوات الطلب]
+1. معرفة طلب الزبون بدقة وتحديد السعر من [المنيو].
+2. سؤاله: "طلبك توصيل ولا استلام من المطعم؟" (إذا كان استلام، لا تسأل عن المنطقة ورسوم التوصيل 0).
+3. إذا توصيل: اطلب المنطقة، وابحث عنها حصراً في [مناطق التوصيل] لحساب الأجرة.
+4. اطلب رقم هاتف الزبون للتواصل.
+5. اعرض له (الملخص النهائي: الأصناف المطلوبة، سعر الأصناف، سعر التوصيل، المجموع الكلي، رقم الهاتف، والعنوان). واطلب منه تأكيد الطلب.
+
+[قاعدة المطبخ السحرية]
+فقط وفقط عندما يقول الزبون (تمام / اعتمد / أوك) بعد رؤية الملخص، يجب أن تبدأ رسالتك بهذه الكلمة حصراً:
+[KITCHEN_GO]
+ثم اكتب تحتها تفاصيل الطلب بهذا التنسيق:
+الطلب: (الأصناف)
+المجموع: (سعر الأصناف + التوصيل)
+الهاتف: (رقم الزبون)
+العنوان: (العنوان أو استلام)
+
+--- 
+المنيو:
+${MENU_DATA}
+
+---
+مناطق التوصيل:
+${DELIVERY_DATA}
+`;
+
+/* ================= HELPERS ================= */
 async function sendWA(chatId, message) {
   try {
-    await axios.post(
-      `${SETTINGS.API_URL}/sendMessage/${SETTINGS.GREEN_TOKEN}`,
-      { chatId, message }
-    );
-  } catch (err) {
-    console.log("WA ERROR:", err.message);
+    await axios.post(`${SETTINGS.API_URL}/sendMessage/${SETTINGS.GREEN_TOKEN}`, { chatId, message });
+  } catch (err) { 
+    console.log("WA ERROR:", err.message); 
   }
 }
 
-/* ================= CLEAN TEXT ================= */
-
-function cleanText(text) {
-  return text
-    .replace(/\[.*?\]/g, "")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-/* ================= SYSTEM PROMPT ================= */
-
-const SYSTEM = `
-${SETTINGS.SYSTEM_PROMPT}
-
-STRICT RULES:
-
-- Never change menu prices
-- Never invent menu items
-- Only use items from the menu
-- Delivery fee must match delivery list exactly
-- Speak Arabic
-
-ORDER FLOW:
-
-1 Receive order
-2 Verify items exist in menu
-3 Calculate price
-4 Ask delivery area
-5 Calculate delivery fee
-6 Ask phone number
-7 Show summary
-8 Ask confirmation
-
-ONLY when customer confirms order start message with:
-
-[KITCHEN_GO]
-
-Kitchen format:
-
-طلب جديد
-
-الاصناف:
-...
-
-المجموع:
-...
-
-الهاتف:
-...
-
-العنوان:
-...
-`;
-
 /* ================= WEBHOOK ================= */
-
 app.post("/webhook", async (req, res) => {
-
   res.sendStatus(200);
-
   const body = req.body;
-
   if (body.typeWebhook !== "incomingMessageReceived") return;
 
   const chatId = body.senderData?.chatId;
-  if (!chatId || chatId.endsWith("@g.us")) return;
+  const text = body.messageData?.textMessageData?.textMessage || 
+               body.messageData?.extendedTextMessageData?.text || "";
 
-  const text =
-    body.messageData?.textMessageData?.textMessage ||
-    body.messageData?.extendedTextMessageData?.text ||
-    "";
+  if (!chatId || chatId.endsWith("@g.us") || !text.trim()) return;
 
-  if (!text.trim()) return;
-
-  /* ===== SESSION ===== */
-
+  // إدارة الجلسات لمنع تداخل الطلبات
   if (!SESSIONS[chatId]) {
-    SESSIONS[chatId] = {
-      history: [],
-      lastActive: Date.now()
-    };
+      SESSIONS[chatId] = { history: [], lastActive: Date.now() };
   }
-
   const session = SESSIONS[chatId];
   session.lastActive = Date.now();
 
-  /* ===== DELETE OLD SESSIONS ===== */
-
-  Object.keys(SESSIONS).forEach(id => {
-    if (Date.now() - SESSIONS[id].lastActive > SESSION_TIMEOUT) {
-      delete SESSIONS[id];
-    }
-  });
-
   try {
-
-    const ai = await axios.post(
-      "https://api.openai.com/v1/chat/completions",
-      {
-        model: "gpt-4o-mini",
-        temperature: 0,
-        top_p: 0,
-        max_tokens: 120,
-        messages: [
-          { role: "system", content: SYSTEM },
-          ...session.history.slice(-6),
-          { role: "user", content: text }
-        ]
-      },
-      {
-        headers: {
-          Authorization: `Bearer ${SETTINGS.OPENAI_KEY}`
-        },
-        timeout: 15000
-      }
-    );
+    const ai = await axios.post("https://api.openai.com/v1/chat/completions", {
+      model: "gpt-4o-mini", // يمكنك تغييره لـ gpt-4o إذا أردت ذكاء أعلى
+      messages: [
+        { role: "system", content: SYSTEM_PROMPT },
+        ...session.history.slice(-10), // الاحتفاظ بآخر 10 رسائل ليظل البوت متذكراً للطلب
+        { role: "user", content: text }
+      ],
+      temperature: 0.1 // نسبة منخفضة جداً لضمان عدم تأليف الذكاء الاصطناعي لأسعار أو مناطق
+    }, {
+      headers: { Authorization: `Bearer ${SETTINGS.OPENAI_KEY}` },
+      timeout: 15000
+    });
 
     let reply = ai.data.choices[0].message.content;
 
-    /* ===== SEND ORDER TO KITCHEN ===== */
-
+    // في حال تأكيد الطلب يتم إرساله للمطبخ فوراً
     if (reply.includes("[KITCHEN_GO]")) {
-
-      const order = cleanText(reply);
-
-      await sendWA(SETTINGS.KITCHEN_GROUP, order);
-
-      await sendWA(chatId, "تم إرسال طلبك للمطبخ 👨‍🍳✅");
-
+      // تجهيز رسالة المطبخ
+      const orderToKitchen = reply.replace("[KITCHEN_GO]", "🔔 *طلب جديد من البوت!*").trim();
+      
+      // إرسال للجروب
+      await sendWA(SETTINGS.KITCHEN_GROUP, orderToKitchen);
+      
+      // رسالة تأكيد للزبون
+      await sendWA(chatId, "تم إرسال طلبك للمطبخ بنجاح! 👨‍🍳✅\nرح نتواصل معك قريباً. صحتين وعافية سلفاً!");
+      
+      // مسح الجلسة بعد نجاح الطلب
       delete SESSIONS[chatId];
-
       return;
     }
 
-    const cleanReply = cleanText(reply);
-
-    if (cleanReply) {
-
-      await sendWA(chatId, cleanReply);
-
-      session.history.push(
-        { role: "user", content: text },
-        { role: "assistant", content: cleanReply }
-      );
-
-      if (session.history.length > 12) {
-        session.history = session.history.slice(-6);
-      }
-    }
+    // إرسال رد البوت العادي للزبون
+    await sendWA(chatId, reply);
+    
+    // حفظ المحادثة في الذاكرة
+    session.history.push({ role: "user", content: text }, { role: "assistant", content: reply });
 
   } catch (err) {
-
     console.log("AI ERROR:", err.response?.data || err.message);
-
-    await sendWA(chatId, "صار خطأ بسيط، حاول مرة ثانية 🙏");
+    await sendWA(chatId, "بعتذر منك، صار معي تعليق بسيط. ممكن تعيد آخر اشي كتبته؟ 🙏");
   }
-
 });
 
 /* ================= SERVER ================= */
-
-app.listen(3000, () => {
-  console.log("🚀 Saber Jo Snack Bot Running");
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+  console.log(`🚀 Saber Jo Bot is RUNNING on port ${PORT}`);
 });
