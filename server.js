@@ -25,11 +25,12 @@ await loadDelivery()
 
 function buildOrderMessage(order){
 
- const items=order.items
-  .map(i=>`${i.name} × ${i.qty}`)
-  .join("\n")
+const items=order.items
+.map(i=>`${i.name} × ${i.qty}`)
+.join("\n")
 
- return `
+return `
+
 طلب جديد 🍔
 
 الهاتف: ${order.phone}
@@ -43,83 +44,102 @@ ${order.address}
 مدة التوصيل: ${CONFIG.DELIVERY_TIME} دقيقة
 
 #${order.id}
+
 `
+
 }
 
 app.post("/webhook",(req,res)=>{
 
- queue.add(()=>handleMessage(req.body))
+queue.add(()=>handleMessage(req.body))
 
- res.sendStatus(200)
+res.sendStatus(200)
 
 })
 
 async function handleMessage(body){
 
- const chatId=body.senderData?.chatId
+const chatId=body.senderData?.chatId
 
- const text=body.messageData?.textMessageData?.textMessage
+const text=body.messageData?.textMessageData?.textMessage
 
- if(!chatId) return
+if(!chatId) return
 
- if(chatId.includes("@g.us")) return
+if(chatId.includes("@g.us")) return
 
- const session=await getSession(chatId)
+const session=await getSession(chatId)
 
- if(!session.orderId){
+if(!session.orderId){
 
-  const order=await createOrder(chatId)
+const order=await createOrder(chatId)
 
-  session.orderId=order.id
+session.orderId=order.id
 
-  await saveSession(chatId,session)
+await saveSession(chatId,session)
 
- }
+}
 
- const order=await getOrder(session.orderId)
+const order=await getOrder(session.orderId)
 
- if(!text){
+if(!text){
 
-  await sendMessage(chatId,"أرسل طلبك")
-  return
+await sendMessage(chatId,"اكتب طلبك او كلمة عروض")
+return
 
- }
+}
 
- const ai=await parseMessage(text,getMenu())
+const ai=await parseMessage(text,getMenu())
 
- if(ai.intent==="order"){
+if(ai.intent==="offers"){
 
-  ai.items.forEach(i=>{
-   order.items.push(i)
-  })
+const menu=getMenu()
 
-  await saveOrder(order)
+const offers=Object.entries(menu)
+.filter(([k,v])=>v.category==="offer")
 
-  await sendMessage(
-   chatId,
-   "تمام 👍\nاكتب *تأكيد الطلب* لإرسال الطلب للمطعم"
-  )
+const msg=offers
+.map(([name,data])=>`🔥 ${name} - ${data.price}`)
+.join("\n")
 
- }
+await sendMessage(chatId,`عروض اليوم:\n\n${msg}`)
 
- if(ai.intent==="confirm" || text.includes("تأكيد")){
+return
 
-  order.status="confirmed"
+}
 
-  await saveOrder(order)
+if(ai.intent==="order"){
 
-  const msg=buildOrderMessage(order)
+ai.items.forEach(i=>{
+order.items.push(i)
+})
 
-  await sendMessage(CONFIG.GROUP_ID,msg)
+await saveOrder(order)
 
-  await sendMessage(chatId,"تم تأكيد الطلب ✅")
+await sendMessage(
+chatId,
+"تم إضافة الطلب 👍\nاكتب تأكيد الطلب لإرساله للمطعم"
+)
 
- }
+}
+
+if(ai.intent==="confirm" || text.includes("تأكيد")){
+
+order.status="confirmed"
+
+await saveOrder(order)
+
+const msg=buildOrderMessage(order)
+
+await sendMessage(CONFIG.GROUP_ID,msg)
+
+await sendMessage(chatId,"تم تأكيد الطلب ✅")
+
+}
 
 }
 
 app.listen(CONFIG.PORT,()=>{
 
- console.log("BOT RUNNING")
+console.log("BOT RUNNING")
 
 })
