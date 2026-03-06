@@ -12,40 +12,43 @@ const CONFIG = {
     API_URL: `https://7103.api.greenapi.com/waInstance${process.env.ID_INSTANCE}`
 };
 
-const MENU_DATA = {
-    "خابور كباب": { price: 2, img: "https://i.imgur.com/lhWRxlO.jpg" },
-    "الوجبة العملاقة": { price: 3, img: "https://i.imgur.com/YBdJtXk.jpg" },
-    "صاروخ شاورما": { price: 1.5, img: "https://i.imgur.com/KpajIR8.jpg" },
-    "زنجر ديناميت": { price: 2, img: "https://i.imgur.com/sZhwxXE.jpg" }
+const MENU = {
+    "خابور كباب": { p: 2, img: "https://i.imgur.com/lhWRxlO.jpg" },
+    "الوجبة العملاقة": { p: 3, img: "https://i.imgur.com/YBdJtXk.jpg" },
+    "صاروخ شاورما": { p: 1.5, img: "https://i.imgur.com/KpajIR8.jpg" },
+    "زنجر ديناميت": { p: 2, img: "https://i.imgur.com/sZhwxXE.jpg" }
 };
 
-let SESSIONS = {}; 
+let SESSIONS = {};
 
-async function aiSalesman(userMsg, session) {
-    const systemPrompt = `
-    أنت مندوب مبيعات محترف ومختصر. 
-    المنيو المتاح فقط: ${Object.keys(MENU_DATA).join(" - ")}.
+async function mandoubAI(userMsg, session) {
+    // برومبت صارم جداً لتقليل "الهلوسة" وتوفير التكلفة
+    const prompt = `
+    أنت مندوب مبيعات. المنيو المتاحة: ${Object.keys(MENU).join(" - ")}.
     
-    القواعد الصارمة:
-    1. إذا سأل العميل "شو عندك" أو استفسر، أجب بنص فقط ولا تضع JSON نهائياً.
-    2. لا تضف أي وجبة للسلة إلا إذا قال العميل بوضوح (أريد، أضف، اطلب، هات).
-    3. إذا قرر العميل الشراء، أضف السطر التالي في نهاية ردك: [ORDER:{"items":[{"n":"اسم الوجبة","q":1}]}]
-    4. إذا أراد العميل إلغاء الطلب أو البدء من جديد، أضف: [ACTION:CLEAR]
-    5. رده الحالي في السلة: ${JSON.stringify(session.items)}.
+    القواعد النهائية:
+    1. إذا العميل يسأل "شو عندك" أو "شو المنيو"، رد بذكر الأصناف فقط. (ممنوع إضافة أي شيء للسلة).
+    2. لا تضف وجبة إلا إذا طلب العميل بوضوح: "أريد"، "أضف"، "سجل لي"، "واحد زنجر".
+    3. إذا أضاف وجبة، استخدم الصيغة: [ACTION:ADD:اسم الوجبة:الكمية]
+    4. إذا طلب الحذف أو البدء من جديد، استخدم: [ACTION:CLEAR]
+    5. سلة العميل الحالية: ${JSON.stringify(session.items)}. رصيد محفظته: ${session.wallet}.
+    6. ردك يجب أن يكون قصيراً ومحفزاً للبيع (Upselling).
     `;
 
     try {
         const res = await axios.post("https://api.openai.com/v1/chat/completions", {
-            model: "gpt-4o-mini",
-            messages: [{ role: "system", content: systemPrompt }, { role: "user", content: userMsg }],
-            temperature: 0 // لضمان عدم الهلوسة والالتزام بالتعليمات
+            model: "gpt-4o-mini", 
+            messages: [{ role: "system", content: prompt }, { role: "user", content: userMsg }],
+            temperature: 0, // صفر يعني لا مجال للتأليف أو الهلوسة
+            max_tokens: 120
         }, { headers: { Authorization: `Bearer ${CONFIG.OPENAI_KEY}` } });
 
         return res.data.choices[0].message.content;
-    } catch (e) { return "تفضل، كيف أقدر أساعدك؟"; }
+    } catch (e) { return "تفضل يا غالي، كيف أخدمك؟"; }
 }
 
 const send = (id, text) => axios.post(`${CONFIG.API_URL}/sendMessage/${CONFIG.GREEN_TOKEN}`, { chatId: id, message: text });
+const sendImg = (id, url, cap) => axios.post(`${CONFIG.API_URL}/sendFileByUrl/${CONFIG.GREEN_TOKEN}`, { chatId: id, urlFile: url, fileName: "food.jpg", caption: cap });
 
 app.post("/webhook", async (req, res) => {
     res.sendStatus(200);
@@ -53,49 +56,57 @@ app.post("/webhook", async (req, res) => {
     if (body.typeWebhook !== "incomingMessageReceived") return;
 
     const chatId = body.senderData.chatId;
-    const userMsg = body.messageData?.textMessageData?.textMessage || "";
+    const userMsg = (body.messageData?.textMessageData?.textMessage || "").trim();
 
     if (!SESSIONS[chatId]) SESSIONS[chatId] = { items: [], wallet: 0 };
     const session = SESSIONS[chatId];
 
-    // أمر يدوي لتصفير السلة إذا علق البوت
+    // تصفير يدوي سريع (للأمان)
     if (userMsg === "تصفير" || userMsg === "اعادة") {
         session.items = [];
-        return send(chatId, "🗑 تم تصفير السلة، كيف أقدر أساعدك من جديد؟");
+        return send(chatId, "🗑 تم تصفير سلتك بالكامل. شو حابب تطلب الآن؟");
     }
 
-    const aiRes = await aiSalesman(userMsg, session);
+    const aiResponse = await mandoubAI(userMsg, session);
 
-    // 1. معالجة تصفير السلة من الـ AI
-    if (aiRes.includes("[ACTION:CLEAR]")) {
+    // معالجة الأوامر البرمجية من الـ AI
+    if (aiResponse.includes("[ACTION:CLEAR]")) {
         session.items = [];
     }
 
-    // 2. معالجة إضافة الطلب
-    if (aiRes.includes("[ORDER:")) {
-        const jsonStr = aiRes.split("[ORDER:")[1].split("]")[0];
-        try {
-            const data = JSON.parse(jsonStr);
-            data.items.forEach(item => {
-                const product = MENU_DATA[item.n];
-                if (product) {
-                    session.items.push({ name: item.n, price: product.price, qty: item.q });
-                }
-            });
-        } catch (e) { console.log("JSON Error"); }
+    if (aiResponse.includes("[ACTION:ADD:")) {
+        const parts = aiResponse.match(/\[ACTION:ADD:(.*?):(\d+)\]/);
+        if (parts) {
+            const name = parts[1].trim();
+            const qty = parseInt(parts[2]);
+            if (MENU[name]) {
+                session.items.push({ name, price: MENU[name].p, qty });
+                // مندوب ذكي: يرسل صورة الوجبة فوراً عند إضافتها
+                await sendImg(chatId, MENU[name].img, `تم إضافة ${name} لسلتك بنجاح! 😋`);
+            }
+        }
     }
 
-    // 3. حساب المجموع الحالي (بدون هلوسة)
-    const currentTotal = session.items.reduce((sum, i) => sum + (i.price * i.qty), 0);
+    // حساب المجموع الحقيقي
+    const total = session.items.reduce((s, i) => s + (i.price * i.qty), 0);
     
-    // تنظيف الرد من الأكواد التقنية قبل إرساله للعميل
-    let finalMsg = aiRes.split("[ORDER:")[0].split("[ACTION:")[0].trim();
-    
-    if (currentTotal > 0) {
-        finalMsg += `\n\n🛒 سلتك حالياً: ${currentTotal} دينار.\n(للتأكيد أرسل "تأكيد" أو "تصفير" للبدء من جديد)`;
+    // تنظيف النص من الأكواد قبل إرساله للعميل
+    let cleanMsg = aiResponse.replace(/\[ACTION:.*?\]/g, "").trim();
+
+    // إضافة ملخص الطلب فقط إذا كان هناك أصناف فعلاً
+    if (total > 0 && !aiResponse.includes("[ACTION:CLEAR]")) {
+        cleanMsg += `\n\n🛒 مجموعك الحالي: ${total} دينار.\n(أرسل "تأكيد" للطلب النهائي)`;
     }
 
-    await send(chatId, finalMsg);
+    // منطق الترحيل للجروب
+    if (userMsg.includes("تأكيد") && total > 0) {
+        const orderSummary = session.items.map(i => `${i.name} (${i.qty})`).join(", ");
+        await send(CONFIG.ORDER_GROUP_ID, `📦 طلب جديد!\nالعميل: ${chatId}\nالأصناف: ${orderSummary}\nالمجموع: ${total}د`);
+        session.items = []; // تصفير السلة بعد التأكيد
+        return send(chatId, "✅ تم ترحيل طلبك للمطعم بنجاح. وصحتين وعافية!");
+    }
+
+    await send(chatId, cleanMsg);
 });
 
 app.listen(3000);
