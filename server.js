@@ -6,21 +6,18 @@ import {queue} from "./queue.js"
 
 import {sendMessage} from "./whatsapp.js"
 
-import {getSession,saveSession} from "./sessions.js"
+import {getSession} from "./sessions.js"
 
-import {createOrder,getOrder,saveOrder} from "./orders.js"
-
-import {loadMenu,getMenu} from "./menu.js"
-
-import {loadDelivery} from "./delivery.js"
+import {createOrder,getOrder} from "./orders.js"
 
 import {parseMessage} from "./ai.js"
+
+import {loadDelivery} from "./delivery.js"
 
 const app=express()
 
 app.use(express.json())
 
-await loadMenu()
 await loadDelivery()
 
 function buildOrderMessage(order){
@@ -33,7 +30,8 @@ return `
 
 طلب جديد 🍔
 
-الهاتف: ${order.phone}
+العميل:
+${order.phone}
 
 الطلب:
 ${items}
@@ -67,66 +65,63 @@ if(!chatId) return
 
 if(chatId.includes("@g.us")) return
 
-const session=await getSession(chatId)
+const session=getSession(chatId)
 
 if(!session.orderId){
 
-const order=await createOrder(chatId)
+const order=createOrder(chatId)
 
 session.orderId=order.id
 
-await saveSession(chatId,session)
-
 }
 
-const order=await getOrder(session.orderId)
+const order=getOrder(session.orderId)
 
 if(!text){
 
 await sendMessage(chatId,"اكتب طلبك او كلمة عروض")
+
 return
 
 }
 
-const ai=await parseMessage(text,getMenu())
+const ai=await parseMessage(text)
+
+/* OFFERS */
 
 if(ai.intent==="offers"){
 
-const menu=getMenu()
-
-const offers=Object.entries(menu)
-.filter(([k,v])=>v.category==="offer")
-
-const msg=offers
-.map(([name,data])=>`🔥 ${name} - ${data.price}`)
-.join("\n")
-
-await sendMessage(chatId,`عروض اليوم:\n\n${msg}`)
+await sendMessage(chatId,ai.reply)
 
 return
 
 }
+
+/* ORDER */
 
 if(ai.intent==="order"){
 
 ai.items.forEach(i=>{
+
 order.items.push(i)
+
 })
 
-await saveOrder(order)
-
 await sendMessage(
+
 chatId,
+
 "تم إضافة الطلب 👍\nاكتب تأكيد الطلب لإرساله للمطعم"
+
 )
 
 }
 
-if(ai.intent==="confirm" || text.includes("تأكيد")){
+/* CONFIRM */
+
+if(ai.intent==="confirm"){
 
 order.status="confirmed"
-
-await saveOrder(order)
 
 const msg=buildOrderMessage(order)
 
