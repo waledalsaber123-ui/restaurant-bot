@@ -1,298 +1,125 @@
-import express from "express";
-import axios from "axios";
-import csv from "csvtojson";
+import express from "express"
 
-const app = express();
-app.use(express.json());
+import {CONFIG} from "./config.js"
 
-const CONFIG = {
-OPENAI_KEY: process.env.OPENAI_KEY,
-GREEN_TOKEN: process.env.GREEN_TOKEN,
-ID_INSTANCE: process.env.ID_INSTANCE,
-ORDER_GROUP_ID: "120363407952234395@g.us",
-DELIVERY_SHEET_URL: process.env.DELIVERY_SHEET_URL,
-API_URL:`https://7103.api.greenapi.com/waInstance${process.env.ID_INSTANCE}`
-};
+import {queue} from "./queue.js"
 
-/* ========================= */
-/* SESSION MEMORY */
-/* ========================= */
+import {sendMessage} from "./whatsapp.js"
 
-const SESSIONS={};
+import {getSession,saveSession} from "./sessions.js"
 
-/* ========================= */
-/* MENU SYSTEM */
-/* ========================= */
+import {createOrder,getOrder,saveOrder} from "./orders.js"
 
-const MENU={
-"خابور كباب":2,
-"الوجبة العملاقة":3,
-"صاروخ شاورما":1.5,
-"زنجر ديناميت":2
-};
+import {loadMenu,getMenu} from "./menu.js"
 
-/* ========================= */
-/* DELIVERY */
-/* ========================= */
+import {loadDelivery} from "./delivery.js"
 
-async function getDeliveryPrice(area){
+import {parseMessage} from "./ai.js"
 
-try{
+const app=express()
 
-const res=await axios.get(CONFIG.DELIVERY_SHEET_URL);
-const data=await csv().fromString(res.data);
+app.use(express.json())
 
-const zone=data.find(z=>area.includes(z.area.trim()));
+await loadMenu()
+await loadDelivery()
 
-return zone ? parseFloat(zone.price) : 0;
+function buildOrderMessage(order){
 
-}catch{
+ const items=order.items
+  .map(i=>`${i.name} × ${i.qty}`)
+  .join("\n")
 
-return 0;
+ return `
+طلب جديد 🍔
+
+الهاتف: ${order.phone}
+
+الطلب:
+${items}
+
+العنوان:
+${order.address}
+
+مدة التوصيل: ${CONFIG.DELIVERY_TIME} دقيقة
+
+#${order.id}
+`
+}
+
+app.post("/webhook",(req,res)=>{
+
+ queue.add(()=>handleMessage(req.body))
+
+ res.sendStatus(200)
+
+})
+
+async function handleMessage(body){
+
+ const chatId=body.senderData?.chatId
+
+ const text=body.messageData?.textMessageData?.textMessage
+
+ if(!chatId) return
+
+ if(chatId.includes("@g.us")) return
+
+ const session=await getSession(chatId)
+
+ if(!session.orderId){
+
+  const order=await createOrder(chatId)
+
+  session.orderId=order.id
+
+  await saveSession(chatId,session)
+
+ }
+
+ const order=await getOrder(session.orderId)
+
+ if(!text){
+
+  await sendMessage(chatId,"أرسل طلبك")
+  return
+
+ }
+
+ const ai=await parseMessage(text,getMenu())
+
+ if(ai.intent==="order"){
+
+  ai.items.forEach(i=>{
+   order.items.push(i)
+  })
+
+  await saveOrder(order)
+
+  await sendMessage(
+   chatId,
+   "تمام 👍\nاكتب *تأكيد الطلب* لإرسال الطلب للمطعم"
+  )
+
+ }
+
+ if(ai.intent==="confirm" || text.includes("تأكيد")){
+
+  order.status="confirmed"
+
+  await saveOrder(order)
+
+  const msg=buildOrderMessage(order)
+
+  await sendMessage(CONFIG.GROUP_ID,msg)
+
+  await sendMessage(chatId,"تم تأكيد الطلب ✅")
+
+ }
 
 }
 
-}
+app.listen(CONFIG.PORT,()=>{
 
-/* ========================= */
-/* AI ENGINE */
-/* ========================= */
+ console.log("BOT RUNNING")
 
-async function askAI(userMsg,session){
-
-const prompt=`
-
-أنت موظف مبيعات لمطعم.
-
-قواعدك:
-
-- لا تكرر الترحيب.
-- الترحيب يكون فقط إذا كانت أول رسالة.
-- إذا سأل العميل عن الأصناف اعرض المنيو.
-- إذا ذكر اسم وجبة أضفها مباشرة.
-
-المنيو:
-خابور كباب
-صاروخ شاورما
-زنجر ديناميت
-الوجبة العملاقة
-
-إذا أضفت صنف استخدم:
-
-[ADD:اسم_الصنف:الكمية]
-
-سلة العميل:
-${JSON.stringify(session.items)}
-
-`;
-
-const res=await axios.post(
-"https://api.openai.com/v1/chat/completions",
-{
-model:"gpt-4o-mini",
-messages:[
-{role:"system",content:prompt},
-...session.history,
-{role:"user",content:userMsg}
-],
-temperature:0
-},
-{
-headers:{Authorization:`Bearer ${CONFIG.OPENAI_KEY}`}
-}
-);
-
-return res.data.choices[0].message.content;
-
-}
-
-/* ========================= */
-/* ADD ITEM */
-/* ========================= */
-
-function addItem(session,name,qty){
-
-const price=MENU[name];
-
-if(!price) return;
-
-const existing=session.items.find(i=>i.n===name);
-
-if(existing){
-
-existing.q+=qty;
-
-}else{
-
-session.items.push({
-n:name,
-p:price,
-q:qty
-});
-
-}
-
-}
-
-/* ========================= */
-/* WEBHOOK */
-/* ========================= */
-
-app.post("/webhook",async(req,res)=>{
-
-res.sendStatus(200);
-
-const body=req.body;
-
-if(body.typeWebhook!=="incomingMessageReceived") return;
-
-const chatId=body.senderData.chatId;
-
-const userMsg=(body.messageData?.textMessageData?.textMessage || "").trim();
-
-if(!SESSIONS[chatId]){
-
-SESSIONS[chatId]={
-items:[],
-area:null,
-deliveryFee:0,
-history:[]
-};
-
-}
-
-const session=SESSIONS[chatId];
-
-/* ========================= */
-/* HISTORY */
-/* ========================= */
-
-session.history.push({
-role:"user",
-content:userMsg
-});
-
-if(session.history.length>8){
-
-session.history.shift();
-
-}
-
-/* ========================= */
-/* CONFIRM ORDER */
-/* ========================= */
-
-if(userMsg.includes("تأكيد")){
-
-const total=session.items.reduce((s,i)=>s+(i.p*i.q),0)+session.deliveryFee;
-
-if(total===0) return;
-
-const summary=session.items.map(i=>`${i.n} (${i.q})`).join(" , ");
-
-await axios.post(
-`${CONFIG.API_URL}/sendMessage/${CONFIG.GREEN_TOKEN}`,
-{
-chatId:CONFIG.ORDER_GROUP_ID,
-message:`طلب جديد
-
-العميل: ${chatId}
-
-المنطقة: ${session.area}
-
-الطلب: ${summary}
-
-المجموع: ${total}`
-});
-
-session.items=[];
-session.area=null;
-session.deliveryFee=0;
-
-return axios.post(
-`${CONFIG.API_URL}/sendMessage/${CONFIG.GREEN_TOKEN}`,
-{
-chatId,
-message:"تم تأكيد الطلب 👍"
-});
-
-}
-
-/* ========================= */
-/* AI RESPONSE */
-/* ========================= */
-
-const aiRes=await askAI(userMsg,session);
-
-/* ========================= */
-/* ADD ITEM */
-/* ========================= */
-
-if(aiRes.includes("[ADD:")){
-
-const match=aiRes.match(/\[ADD:(.*?):(\d+)\]/);
-
-if(match){
-
-const meal=match[1];
-const qty=parseInt(match[2]);
-
-addItem(session,meal,qty);
-
-}
-
-}
-
-/* ========================= */
-/* CLEAN MESSAGE */
-/* ========================= */
-
-let reply=aiRes.replace(/\[.*?\]/g,"").trim();
-
-/* ========================= */
-/* CALCULATE */
-/* ========================= */
-
-const sub=session.items.reduce((s,i)=>s+(i.p*i.q),0);
-
-if(sub>0){
-
-reply+=`
-
-🛒 الطلب: ${sub} دينار
-🚚 التوصيل: ${session.deliveryFee}
-💰 المجموع: ${sub+session.deliveryFee}
-
-اكتب "تأكيد" لإرسال الطلب`;
-
-}
-
-/* ========================= */
-/* SAVE HISTORY */
-/* ========================= */
-
-session.history.push({
-role:"assistant",
-content:reply
-});
-
-/* ========================= */
-/* SEND */
-/* ========================= */
-
-await axios.post(
-`${CONFIG.API_URL}/sendMessage/${CONFIG.GREEN_TOKEN}`,
-{
-chatId,
-message:reply
-});
-
-});
-
-/* ========================= */
-
-app.listen(3000,()=>{
-
-console.log("BOT RUNNING");
-
-});
+})
