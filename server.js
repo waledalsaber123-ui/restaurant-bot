@@ -7,7 +7,8 @@ app.use(express.json());
 const SETTINGS = {
   OPENAI_KEY: process.env.OPENAI_KEY,
   GREEN_TOKEN: process.env.GREEN_TOKEN,
-  DELIVERY_SHEET:process.env.DELIVERY_SHEET,
+  SYSTEM_PROMPT:  process.env.SYSTEM_PROMPT,
+  DELIVERY_SHEET: process.env.DELIVERY_SHEET,
   ID_INSTANCE: process.env.ID_INSTANCE,
   KITCHEN_GROUP: "120363407952234395@g.us", // جروب المطبخ المعتمد
   API_URL: `https://7103.api.greenapi.com/waInstance${process.env.ID_INSTANCE}`
