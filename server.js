@@ -1,5 +1,6 @@
 import express from "express";
 import axios from "axios";
+import csv from "csvtojson";
 
 const app = express();
 app.use(express.json());
@@ -8,16 +9,31 @@ const SETTINGS = {
   OPENAI_KEY: process.env.OPENAI_KEY,
   GREEN_TOKEN: process.env.GREEN_TOKEN,
   ID_INSTANCE: process.env.ID_INSTANCE,
-  KITCHEN_GROUP: "120363407952234395@g.us", // جروب المطبخ
+  KITCHEN_GROUP: "120363407952234395@g.us",
+  SHEET_URL: process.env.DELIVERY_SHEET, // الرابط من الـ Environment Variables
   API_URL: `https://7103.api.greenapi.com/waInstance${process.env.ID_INSTANCE}`
 };
 
 const SESSIONS = {};
 
+// دالة جلب سعر التوصيل من الرابط
+async function getDeliveryPrice(areaText) {
+  try {
+    const res = await axios.get(SETTINGS.SHEET_URL);
+    const data = await csv().fromString(res.data);
+    // البحث عن المنطقة داخل ملف الـ CSV
+    const zone = data.find(d => areaText.toLowerCase().includes(d.area.trim().toLowerCase()));
+    return zone ? parseFloat(zone.price) : null;
+  } catch (e) {
+    console.log("Error fetching delivery prices");
+    return null;
+  }
+}
+
 async function sendWA(chatId, message) {
   try {
     await axios.post(`${SETTINGS.API_URL}/sendMessage/${SETTINGS.GREEN_TOKEN}`, { chatId, message });
-  } catch (e) { console.log("خطأ في إرسال واتساب"); }
+  } catch (e) { console.log("WA Error"); }
 }
 
 app.post("/webhook", async (req, res) => {
@@ -32,38 +48,33 @@ app.post("/webhook", async (req, res) => {
                body.messageData?.extendedTextMessageData?.text || "";
 
   if (!text.trim()) return;
-  if (!SESSIONS[chatId]) SESSIONS[chatId] = { history: [] };
+  if (!SESSIONS[chatId]) SESSIONS[chatId] = { history: [], deliveryPrice: 0, area: "" };
   const session = SESSIONS[chatId];
 
+  // 1. فحص إذا العميل ذكر منطقة لجلب سعر التوصيل فوراً من الرابط
+  // يتم هذا قبل إرسال الطلب للذكاء الاصطناعي لضمان دقة السعر
+  const deliveryInSheet = await getDeliveryPrice(text);
+  if (deliveryInSheet !== null) {
+    session.deliveryPrice = deliveryInSheet;
+  }
+
   const systemPrompt = `
-أنت مندوب مبيعات محترف وذكي لمطعم Saber Jo Snack (عمان - شارع الجامعة - طلوع هافانا).
-لهجتك: أردنية شبابية (يا غالي، أبشر، على راسي).
+أنت مندوب مبيعات Saber Jo Snack. 
+📍 موقعنا: عمّان - شارع الجامعة - طلوع هافانا (https://maps.app.goo.gl/NdFQY67DEnsWQdKZ9).
+⚠️ سعر التوصيل الحالي المكتشف للمنطقة: ${session.deliveryPrice} دينار.
 
-قواعد البيع (المنيو):
-- العروض القوية (نركز عليها): ديناميت 45 سم (1د)، صاروخ شاورما (1.5د)، قنبلة رمضان برجر 250غم (2.25د)، خابور كباب 200غم (2د).
-- قاعدة الوجبة: أي ساندويش أو عرض بدك اياه "وجبة" مع بطاطا، ضيف 1 دينار.
-- وجبات عائلية: اقتصادية 7د (4 ساندويش)، عائلية 10د (6 ساندويش)، عملاقة 14د (9 ساندويش).
-- شاورما عائلي: اقتصادية 6 ساندويش (6د)، الأوفر 8 ساندويش (9د).
-- فردي: وجبة سكالوب/زنجر/برجر (2د). ساندويش سكالوب/زنجر/برجر (1.5د).
+قواعد صارمة:
+- لا ترسل [CONFIRM_ORDER] إلا بعد عرض ملخص (الأصناف، السعر، التوصيل، المجموع) وموافقة العميل بكلمة "أكد" أو "تم".
+- إذا سأل عن الموقع، أرسل الرابط أعلاه فوراً.
+- المنيو: ديناميت (1د)، صاروخ (1.5د)، قنبلة (2.25د)، خابور (2د)، وجبات فردية (2د).
+- استخدم سعر التوصيل (${session.deliveryPrice}) في حساب المجموع النهائي دائماً.
 
-موقع المطعم (ترسله فقط إذا طلب العميل الموقع/اللوكيشن):
-شارع الجامعة الأردنية – عمّان – طلوع هافانا
-https://maps.app.goo.gl/NdFQY67DEnsWQdKZ9
-
-شروط ترحيل الطلب:
-1. لا تنهي الطلب إلا بعد جمع (الاسم، الهاتف، المنطقة، تفصيل الطلب).
-2. اعرض السعر النهائي (الطلب + التوصيل) واسأل العميل "أثبت؟".
-3. عند التأكيد النهائي، أرسل الكود [CONFIRM_ORDER] متبوعاً بالصيغة التالية:
-
+صيغة الترحيل للجروب:
 🔔 عميل محتمل جديد
 👤 الاسم: [الاسم]
 📱 الهاتف: [الهاتف]
-📧 البريد: no-email@saberjo.com
-🎯 الاهتمام: Order Delivery
 📝 ملاحظات:
-الطلب: [التفصيل]. التوصيل: [المنطقة والسعر]. المجموع: [المجموع النهائي]. الرقم: [الهاتف]
-──────────────
-📌 المصدر: WhatsApp
+الطلب: [التفاصيل]. التوصيل: [المنطقة] (${session.deliveryPrice}د). المجموع النهائي: [المجموع].
 `;
 
   try {
@@ -79,21 +90,17 @@ https://maps.app.goo.gl/NdFQY67DEnsWQdKZ9
 
     let aiReply = aiRes.data.choices[0].message.content;
 
-    // ترحيل الطلب للجروب بصيغة احترافية
     if (aiReply.includes("[CONFIRM_ORDER]")) {
-      const finalOrder = aiReply.replace("[CONFIRM_ORDER]", "").trim();
-      await sendWA(SETTINGS.KITCHEN_GROUP, finalOrder);
-      await sendWA(chatId, "أبشر يا غالي، تم تأكيد طلبك وإرساله للمطبخ فوراً! 🏎️");
+      const finalData = aiReply.replace("[CONFIRM_ORDER]", "").trim();
+      await sendWA(SETTINGS.KITCHEN_GROUP, finalData);
+      await sendWA(chatId, "أبشر يا غالي، تم تأكيد طلبك وإرساله للمطبخ! ✅");
       delete SESSIONS[chatId];
       return;
     }
 
-    // الرد العادي على العميل
     const cleanReply = aiReply.replace(/\[.*?\]/g, "").trim();
-    if (cleanReply) {
-      await sendWA(chatId, cleanReply);
-      session.history.push({ role: "user", content: text }, { role: "assistant", content: cleanReply });
-    }
+    await sendWA(chatId, cleanReply);
+    session.history.push({ role: "user", content: text }, { role: "assistant", content: cleanReply });
 
   } catch (err) { console.log("AI Error"); }
 });
