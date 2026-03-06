@@ -37,6 +37,20 @@ let DELIVERY=[]
 
 /* ========================= */
 
+function normalize(text){
+
+if(!text) return ""
+
+return text
+.toLowerCase()
+.replace(/أ|إ|آ/g,"ا")
+.replace(/ة/g,"ه")
+.replace(/ى/g,"ي")
+
+}
+
+/* ========================= */
+
 function getOrder(user){
 
 if(!ORDERS[user]){
@@ -66,20 +80,6 @@ history:[]
 }
 
 return MEMORY[user]
-
-}
-
-/* ========================= */
-
-function normalize(text){
-
-if(!text) return ""
-
-return text
-.toLowerCase()
-.replace(/أ|إ|آ/g,"ا")
-.replace(/ة/g,"ه")
-.replace(/ى/g,"ي")
 
 }
 
@@ -147,15 +147,13 @@ const prompt=`
 
 انت موظف مبيعات في مطعم.
 
-تكلم مع العميل بطريقة ودية.
-كن طبيعي.
-ساعده يختار طلب.
-اقترح عليه اصناف.
+مهم جداً:
 
-لا تخترع اسعار.
 لا تؤكد الطلب.
+لا تحسب السعر.
+لا تخترع أصناف.
 
-فقط تحدث مثل موظف مبيعات.
+فقط تحدث مع العميل بطريقة ودية وساعده يختار.
 
 استخدم اسلوب اردني بسيط مثل:
 يا غالي
@@ -184,10 +182,10 @@ return ai.data.choices[0].message.content
 }
 
 /* ========================= */
-/* AI ORDER EXTRACTION */
+/* AI ORDER DETECTION */
 /* ========================= */
 
-async function extractOrder(text){
+async function detectOrder(text){
 
 try{
 
@@ -200,13 +198,20 @@ messages:[
 role:"system",
 content:`
 
-Extract food item and quantity.
+Detect if the user is ordering food.
 
-Return JSON:
+If the user is NOT ordering return:
 
 {
-item:"name",
-qty:number
+"order": false
+}
+
+If the user is ordering return:
+
+{
+"order": true,
+"item": "name",
+"qty": number
 }
 
 `
@@ -226,7 +231,7 @@ return JSON.parse(ai.data.choices[0].message.content)
 
 }catch{
 
-return null
+return {order:false}
 
 }
 
@@ -267,23 +272,23 @@ memory.history.shift()
 await loadDelivery()
 
 /* ========================= */
-/* فهم الطلب */
+/* DETECT ORDER */
 /* ========================= */
 
-const result=await extractOrder(message)
+const result=await detectOrder(message)
 
-if(result && result.item){
+if(result.order){
 
-const itemName=result.item
+if(MENU[result.item]){
 
-if(MENU[itemName]){
-
-addItem(order,itemName,result.qty||1)
+addItem(order,result.item,result.qty||1)
 
 await send(chatId,
-`👍 تم إضافة ${itemName}
+`👍 تم إضافة ${result.item}
 
-💰 المجموع الحالي ${total(order)} دينار`)
+💰 المجموع الحالي ${total(order)} دينار
+
+بدك تضيف شي ثاني؟`)
 
 return
 
@@ -292,7 +297,7 @@ return
 }
 
 /* ========================= */
-/* منطقة */
+/* DELIVERY AREA */
 /* ========================= */
 
 for(const row of DELIVERY){
@@ -314,7 +319,7 @@ return
 }
 
 /* ========================= */
-/* تأكيد */
+/* CONFIRM ORDER */
 /* ========================= */
 
 if(normalize(message).includes("تأكيد")){
@@ -338,7 +343,9 @@ ${itemsText}
 
 await send(ORDER_GROUP_ID,text)
 
-await send(chatId,"تم ارسال الطلب للمطعم 👍")
+await send(chatId,"تم إرسال الطلب للمطعم 👍")
+
+delete ORDERS[chatId]
 
 return
 
