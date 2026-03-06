@@ -5,7 +5,7 @@ import csv from "csvtojson";
 const app = express();
 app.use(express.json());
 
-/* ========= الإعدادات المباشرة (تجنباً لخطأ ملف config المفقود) ========= */
+/* ========= الإعدادات المباشرة ========= */
 const SETTINGS = {
     OPENAI_KEY: process.env.OPENAI_KEY,
     GREEN_TOKEN: process.env.GREEN_TOKEN,
@@ -15,111 +15,109 @@ const SETTINGS = {
     API_URL: `https://7103.api.greenapi.com/waInstance${process.env.ID_INSTANCE}`
 };
 
-// ذاكرة الجلسات والرسائل لمنع التكرار
+// قائمة الأسعار الحقيقية (لضمان دقة الحساب)
+const MENU_PRICES = {
+    "كباب": 5.0,
+    "ديناميت زنجر": 2.5,
+    "شاورما": 3.0,
+    "زنجر": 4.0
+};
+
 const SESSIONS = {};
 const LAST_MESSAGE = {}; 
 
-/* ========= وظيفة جلب سعر التوصيل من الشيت ========= */
+/* ========= وظيفة جلب سعر التوصيل ========= */
 async function getDeliveryPrice(areaName) {
     try {
         const res = await axios.get(SETTINGS.SHEET_URL);
         const data = await csv().fromString(res.data);
-        // البحث عن تطابق اسم المنطقة داخل النص المرسل
         const zone = data.find(d => areaName.includes(d.area.trim()));
         return zone ? parseFloat(zone.price) : 0;
-    } catch (e) { 
-        console.log("خطأ في قراءة الشيت");
-        return 0; 
-    }
+    } catch (e) { return 0; }
 }
 
-/* ========= وظيفة إرسال الرسائل لواتساب ========= */
+/* ========= وظيفة إرسال الرسائل ========= */
 async function sendWA(chatId, message) {
     try {
-        await axios.post(`${SETTINGS.API_URL}/sendMessage/${SETTINGS.GREEN_TOKEN}`, {
-            chatId,
-            message
-        });
-    } catch (e) { console.error("خطأ في إرسال واتساب"); }
+        await axios.post(`${SETTINGS.API_URL}/sendMessage/${SETTINGS.GREEN_TOKEN}`, { chatId, message });
+    } catch (e) { console.error("Error sending WA"); }
 }
 
-/* ========= الواتساب ويب هوك (المعالج الرئيسي) ========= */
+/* ========= المعالج الرئيسي (Webhook) ========= */
 app.post("/webhook", async (req, res) => {
-    // 1. الحل الجذري للتكرار: الرد فوراً بـ 200 لإعلام السيرفر بالاستلام
+    // 1. رد فوري لمنع التكرار (Spam Protection)
     res.sendStatus(200);
 
     const body = req.body;
     if (body.typeWebhook !== "incomingMessageReceived") return;
 
     const chatId = body.senderData?.chatId;
-    // دعم كافة أنواع النصوص (بما فيها الأجهزة المرتبطة) لحل مشكلة "في انتظار الرسالة"
+    // دعم كافة أنواع الرسائل لحل مشكلة التشفير المعلق
     const text = (body.messageData?.textMessageData?.textMessage || 
                   body.messageData?.extendedTextMessageData?.text || "").trim();
 
     if (!chatId || !text || chatId.includes("@g.us")) return;
 
-    // 2. منع معالجة نفس الرسالة مرتين (Spam Protection)
     if (LAST_MESSAGE[chatId] === text) return;
     LAST_MESSAGE[chatId] = text;
 
-    // 3. إدارة جلسة الطلب
     if (!SESSIONS[chatId]) {
         SESSIONS[chatId] = { items: [], area: "", delivery: 0, total: 0 };
     }
     const session = SESSIONS[chatId];
 
-    // 4. برومبت النظام للذكاء الاصطناعي (المنيو والقواعد)
+    // 2. برومبت النظام مع قائمة الأسعار الصارمة
     const systemPrompt = `
-    أنت بوت مطعم ذكي. المنيو: (كباب: 5د، شاورما: 3د، زنجر: 4د).
-    مهمتك:
-    - إذا طلب العميل وجبة، رد بـ: [ADD:اسم_الوجبة:الكمية].
-    - إذا ذكر منطقة سكنية، رد بـ: [AREA:اسم_المنطقة].
-    - إذا أراد التأكيد النهائي، رد بـ: [CONFIRM].
-    - السلة الحالية للعميل: ${JSON.stringify(session.items)}.
+    أنت بوت مطعم. قائمة الأسعار: ${JSON.stringify(MENU_PRICES)}.
+    مهمتك استخراج الأصناف والكميات بدقة.
+    - إذا طلب العميل، رد بـ: [ADD:اسم_الصنف:الكمية].
+    - إذا ذكر منطقة، رد بـ: [AREA:اسم_المنطقة].
+    - إذا أكد الطلب، رد بـ: [CONFIRM].
+    السلة الحالية: ${JSON.stringify(session.items)}.
     `;
 
     try {
         const aiRes = await axios.post("https://api.openai.com/v1/chat/completions", {
             model: "gpt-4o-mini",
-            messages: [
-                { role: "system", content: systemPrompt },
-                { role: "user", content: text }
-            ],
+            messages: [{ role: "system", content: systemPrompt }, { role: "user", content: text }],
             temperature: 0
         }, { headers: { Authorization: `Bearer ${SETTINGS.OPENAI_KEY}` } });
 
         const content = aiRes.data.choices[0].message.content;
 
-        // 5. معالجة أوامر الـ AI المستخرجة
+        // 3. تصحيح منطق الحساب (الكمية × السعر)
+        if (content.includes("[ADD:")) {
+            const matches = content.match(/\[ADD:(.*?):(\d+)\]/g);
+            matches.forEach(match => {
+                const [_, name, qty] = match.match(/\[ADD:(.*?):(\d+)\]/);
+                const price = MENU_PRICES[name] || 0;
+                session.items.push({ name, qty: parseInt(qty), price: price });
+            });
+
+            // حساب المجموع الفرعي للوجبات
+            session.total = session.items.reduce((sum, item) => sum + (item.price * item.qty), 0);
+        }
+
         if (content.includes("[AREA:")) {
             const area = content.match(/\[AREA:(.*?)\]/)[1];
             session.area = area;
             session.delivery = await getDeliveryPrice(area);
-        }
-
-        if (content.includes("[ADD:")) {
-            const match = content.match(/\[ADD:(.*?):(\d+)\]/);
-            session.items.push({ name: match[1], qty: match[2] });
+            session.total += session.delivery;
         }
 
         if (content.includes("[CONFIRM]")) {
-            const summary = `🚨 طلب جديد مؤكد:\nالعميل: ${chatId}\nالمنطقة: ${session.area}\nالطلب: ${JSON.stringify(session.items)}\nالتوصيل: ${session.delivery}د`;
+            const summary = `🚨 طلب مؤكد:\nالطلب: ${session.items.map(i => `${i.name} (${i.qty})`).join(", ")}\nالإجمالي: ${session.total}د`;
             await sendWA(SETTINGS.GROUP_ID, summary);
-            await sendWA(chatId, "تم تأكيد طلبك بنجاح ✅");
-            delete SESSIONS[chatId]; // تصفير الجلسة
+            await sendWA(chatId, "تم التأكيد ✅");
+            delete SESSIONS[chatId];
             return;
         }
 
-        // 6. إرسال الرد النصي "النظيف" للعميل
         const cleanReply = content.replace(/\[.*?\]/g, "").trim();
-        await sendWA(chatId, cleanReply);
+        const finalMessage = cleanReply + (session.total > 0 ? `\n\nالمجموع الحالي: ${session.total} دينار.` : "");
+        await sendWA(chatId, finalMessage);
 
-    } catch (e) {
-        console.error("AI Runtime Error");
-        await sendWA(chatId, "أهلاً بك! كيف بقدر أساعدك بالطلب؟");
-    }
+    } catch (e) { console.error("AI Error"); }
 });
 
-app.get("/", (req, res) => res.send("Bot is Online 🚀"));
-
-app.listen(3000, () => console.log("✅ السيرفر يعمل على منفذ 3000"));
+app.listen(3000, () => console.log("Bot Ready 🚀"));
