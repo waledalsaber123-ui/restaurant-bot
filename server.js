@@ -1,6 +1,5 @@
 import express from "express";
 import axios from "axios";
-import csv from "csvtojson";
 
 const app = express();
 app.use(express.json());
@@ -10,55 +9,44 @@ const CONFIG = {
     GREEN_TOKEN: process.env.GREEN_TOKEN,
     ID_INSTANCE: process.env.ID_INSTANCE,
     ORDER_GROUP_ID: "120363407952234395@g.us",
-    DELIVERY_SHEET: process.env.DELIVERY_SHEET_URL,
     API_URL: `https://7103.api.greenapi.com/waInstance${process.env.ID_INSTANCE}`
 };
 
-// بيانات المنيو والصور
 const MENU_DATA = {
-    "خابور كباب": { p: 2, img: "https://i.imgur.com/lhWRxlO.jpg" },
-    "الوجبة العملاقة": { p: 3, img: "https://i.imgur.com/YBdJtXk.jpg" },
-    "صاروخ شاورما": { p: 1.5, img: "https://i.imgur.com/KpajIR8.jpg" },
-    "زنجر ديناميت": { p: 2, img: "https://i.imgur.com/sZhwxXE.jpg" }
-    // أضف البقية هنا بنفس النسق القصير p للسعر و img للصورة
+    "خابور كباب": { price: 2, img: "https://i.imgur.com/lhWRxlO.jpg" },
+    "الوجبة العملاقة": { price: 3, img: "https://i.imgur.com/YBdJtXk.jpg" },
+    "صاروخ شاورما": { price: 1.5, img: "https://i.imgur.com/KpajIR8.jpg" },
+    "زنجر ديناميت": { price: 2, img: "https://i.imgur.com/sZhwxXE.jpg" }
 };
 
 let SESSIONS = {}; 
 
-/* =========================================
-   محرّك الذكاء الاصطناعي (المندوب المقتصد)
-   ========================================= */
-async function callAI(userMsg, session) {
+async function aiSalesman(userMsg, session) {
     const systemPrompt = `
-    أنت مندوب مبيعات مختصر جداً. المنيو: ${JSON.stringify(Object.keys(MENU_DATA))}.
-    القواعد:
-    1. ردك لا يتجاوز 15 كلمة.
-    2. إذا سأل عن الأصناف، اذكر 3 فقط واقترح تجربة واحد.
-    3. إذا طلب فعلياً، أضف السطر: [JSON:{"items":[{"n":"اسم الوجبة","q":1}]}]
-    4. لا تستخرج JSON إذا كان المستخدم يستفسر فقط.
-    5. رصيد محفظته الحالي: ${session.wallet} دينار.
+    أنت مندوب مبيعات محترف ومختصر. 
+    المنيو المتاح فقط: ${Object.keys(MENU_DATA).join(" - ")}.
+    
+    القواعد الصارمة:
+    1. إذا سأل العميل "شو عندك" أو استفسر، أجب بنص فقط ولا تضع JSON نهائياً.
+    2. لا تضف أي وجبة للسلة إلا إذا قال العميل بوضوح (أريد، أضف، اطلب، هات).
+    3. إذا قرر العميل الشراء، أضف السطر التالي في نهاية ردك: [ORDER:{"items":[{"n":"اسم الوجبة","q":1}]}]
+    4. إذا أراد العميل إلغاء الطلب أو البدء من جديد، أضف: [ACTION:CLEAR]
+    5. رده الحالي في السلة: ${JSON.stringify(session.items)}.
     `;
 
     try {
-        const ai = await axios.post("https://api.openai.com/v1/chat/completions", {
-            model: "gpt-4o-mini", // الأرخص والأسرع
+        const res = await axios.post("https://api.openai.com/v1/chat/completions", {
+            model: "gpt-4o-mini",
             messages: [{ role: "system", content: systemPrompt }, { role: "user", content: userMsg }],
-            max_tokens: 100 // لتقليل التكلفة
+            temperature: 0 // لضمان عدم الهلوسة والالتزام بالتعليمات
         }, { headers: { Authorization: `Bearer ${CONFIG.OPENAI_KEY}` } });
 
-        return ai.data.choices[0].message.content;
-    } catch (e) { return "تفضل، كيف أخدمك؟"; }
+        return res.data.choices[0].message.content;
+    } catch (e) { return "تفضل، كيف أقدر أساعدك؟"; }
 }
 
-/* =========================================
-   الدوال الأساسية
-   ========================================= */
 const send = (id, text) => axios.post(`${CONFIG.API_URL}/sendMessage/${CONFIG.GREEN_TOKEN}`, { chatId: id, message: text });
-const sendImg = (id, url, cap) => axios.post(`${CONFIG.API_URL}/sendFileByUrl/${CONFIG.GREEN_TOKEN}`, { chatId: id, urlFile: url, fileName: "a.jpg", caption: cap });
 
-/* =========================================
-   المعالجة الرئيسية (Webhook)
-   ========================================= */
 app.post("/webhook", async (req, res) => {
     res.sendStatus(200);
     const body = req.body;
@@ -67,40 +55,47 @@ app.post("/webhook", async (req, res) => {
     const chatId = body.senderData.chatId;
     const userMsg = body.messageData?.textMessageData?.textMessage || "";
 
-    if (!SESSIONS[chatId]) SESSIONS[chatId] = { items: [], wallet: 0, area: null };
+    if (!SESSIONS[chatId]) SESSIONS[chatId] = { items: [], wallet: 0 };
     const session = SESSIONS[chatId];
 
-    // 1. منطق التأكيد (بدون ذكاء اصطناعي لتوفير التكلفة)
-    if (userMsg.includes("تأكيد")) {
-        if (session.items.length === 0) return send(chatId, "سلتك فارغة!");
-        const total = session.items.reduce((s, i) => s + (i.p * i.q), 0);
-        await send(CONFIG.ORDER_GROUP_ID, `🔔 طلب جديد من ${chatId}\nالمجموع: ${total}د\nسحب الطلب: #سحب_${Math.floor(Math.random()*900)}`);
+    // أمر يدوي لتصفير السلة إذا علق البوت
+    if (userMsg === "تصفير" || userMsg === "اعادة") {
         session.items = [];
-        return send(chatId, "تم التأكيد! سيصلك الطلب قريباً.");
+        return send(chatId, "🗑 تم تصفير السلة، كيف أقدر أساعدك من جديد؟");
     }
 
-    // 2. معالجة المحفظة
-    if (userMsg.includes("محفظة") || userMsg.includes("رصيدي")) {
-        return send(chatId, `💰 رصيدك الحالي: ${session.wallet} دينار.\nيمكنك شحنها عند الاستلام.`);
+    const aiRes = await aiSalesman(userMsg, session);
+
+    // 1. معالجة تصفير السلة من الـ AI
+    if (aiRes.includes("[ACTION:CLEAR]")) {
+        session.items = [];
     }
 
-    // 3. ذكاء المندوب
-    const aiRes = await callAI(userMsg, session);
-
-    // معالجة إضافة الطلب والصور
-    if (aiRes.includes("[JSON:")) {
-        const jsonStr = aiRes.split("[JSON:")[1].split("]")[0];
-        const data = JSON.parse(jsonStr);
-        for (const item of data.items) {
-            const product = MENU_DATA[item.n];
-            if (product) {
-                session.items.push({ name: item.n, p: product.p, q: item.q });
-                await sendImg(chatId, product.img, `تم إضافة ${item.n} ✅`);
-            }
-        }
+    // 2. معالجة إضافة الطلب
+    if (aiRes.includes("[ORDER:")) {
+        const jsonStr = aiRes.split("[ORDER:")[1].split("]")[0];
+        try {
+            const data = JSON.parse(jsonStr);
+            data.items.forEach(item => {
+                const product = MENU_DATA[item.n];
+                if (product) {
+                    session.items.push({ name: item.n, price: product.price, qty: item.q });
+                }
+            });
+        } catch (e) { console.log("JSON Error"); }
     }
 
-    await send(chatId, aiRes.split("[JSON:")[0].trim());
+    // 3. حساب المجموع الحالي (بدون هلوسة)
+    const currentTotal = session.items.reduce((sum, i) => sum + (i.price * i.qty), 0);
+    
+    // تنظيف الرد من الأكواد التقنية قبل إرساله للعميل
+    let finalMsg = aiRes.split("[ORDER:")[0].split("[ACTION:")[0].trim();
+    
+    if (currentTotal > 0) {
+        finalMsg += `\n\n🛒 سلتك حالياً: ${currentTotal} دينار.\n(للتأكيد أرسل "تأكيد" أو "تصفير" للبدء من جديد)`;
+    }
+
+    await send(chatId, finalMsg);
 });
 
 app.listen(3000);
