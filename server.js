@@ -10,6 +10,7 @@ const OPENAI_KEY = process.env.OPENAI_KEY
 const GREEN_TOKEN = process.env.GREEN_TOKEN
 const ID_INSTANCE = process.env.ID_INSTANCE
 const DELIVERY_SHEET_URL = process.env.DELIVERY_SHEET_URL
+const SYSTEM_PROMPT = process.env.SYSTEM_PROMPT
 
 const GROUP_ID = "120363407952234395@g.us"
 
@@ -18,6 +19,8 @@ const API_URL = `https://7103.api.greenapi.com/waInstance${ID_INSTANCE}`
 /* ========= MEMORY ========= */
 
 const SESSIONS = {}
+const LAST_MESSAGE = {}
+
 let DELIVERY = {}
 
 /* ========= LOAD DELIVERY ========= */
@@ -34,15 +37,17 @@ rows.forEach(r=>{
 
 const [area,price] = r.split(",")
 
-if(area) DELIVERY[area.trim()] = Number(price)
+if(area){
+DELIVERY[area.trim()] = Number(price)
+}
 
 })
 
 console.log("Delivery zones loaded")
 
-}catch{
+}catch(e){
 
-console.log("Delivery sheet failed")
+console.log("Delivery load failed")
 
 }
 
@@ -55,14 +60,11 @@ loadDelivery()
 async function sendMessage(chatId,text){
 
 await axios.post(
-
 `${API_URL}/sendMessage/${GREEN_TOKEN}`,
-
 {
 chatId,
 message:text
 }
-
 )
 
 }
@@ -77,11 +79,11 @@ const res = await axios.post(
 "https://api.openai.com/v1/chat/completions",
 {
 model:"gpt-4o-mini",
-temperature:0.3,
+temperature:0.2,
 messages:[
 {
 role:"system",
-content:"انت مساعد طلبات لمطعم. رد بشكل طبيعي ومختصر."
+content:SYSTEM_PROMPT
 },
 {
 role:"user",
@@ -91,28 +93,32 @@ content:message
 },
 {
 headers:{
-Authorization:`Bearer ${OPENAI_KEY}`
+Authorization:`Bearer ${OPENAI_KEY}`,
+"Content-Type":"application/json"
 }
 }
 )
 
 return res.data.choices[0].message.content
 
-}catch{
+}catch(e){
 
-return "أهلا يا غالي 👋 شو بتحب تطلب؟"
+console.log("AI ERROR")
+
+return "أهلا يا غالي 👋 كيف فيني أساعدك؟"
 
 }
 
 }
 
-/* ========= ORDER SUMMARY ========= */
+/* ========= SUMMARY ========= */
 
 function buildSummary(order){
 
 const items = order.items.join("\n")
 
 return `
+
 🧾 ملخص الطلب
 
 ${items}
@@ -120,24 +126,27 @@ ${items}
 📍 العنوان
 ${order.address}
 
-🚚 التوصيل
+🚚 أجور التوصيل
 ${order.delivery}
 
 💰 المجموع
 ${order.total}
 
-اكتب: تأكيد الطلب
+اكتب:
+تأكيد الطلب
+
 `
 
 }
 
 /* ========= GROUP MESSAGE ========= */
 
-function buildGroup(order){
+function buildGroupMessage(order){
 
 const items = order.items.join("\n")
 
 return `
+
 🚨 طلب جديد
 
 📞 الهاتف
@@ -156,6 +165,7 @@ ${order.delivery}
 ${order.total}
 
 #${order.id}
+
 `
 
 }
@@ -166,14 +176,32 @@ app.post("/webhook",async(req,res)=>{
 
 const body = req.body
 
+/* ignore events */
+
+if(body.typeWebhook !== "incomingMessageReceived"){
+return res.sendStatus(200)
+}
+
 const chatId = body.senderData?.chatId
 const text = body.messageData?.textMessageData?.textMessage
 
-if(!chatId) return res.sendStatus(200)
+if(!chatId || !text){
+return res.sendStatus(200)
+}
 
 /* ignore groups */
 
-if(chatId.includes("@g.us")) return res.sendStatus(200)
+if(chatId.includes("@g.us")){
+return res.sendStatus(200)
+}
+
+/* prevent spam */
+
+if(LAST_MESSAGE[chatId] === text){
+return res.sendStatus(200)
+}
+
+LAST_MESSAGE[chatId] = text
 
 /* create session */
 
@@ -196,23 +224,26 @@ const order = SESSIONS[chatId]
 
 /* confirm order */
 
-if(text?.includes("تأكيد")){
+if(text.includes("تأكيد")){
 
-const msg = buildGroup(order)
+const msg = buildGroupMessage(order)
 
 await sendMessage(GROUP_ID,msg)
 
 await sendMessage(chatId,"تم تأكيد الطلب ✅")
 
+delete SESSIONS[chatId]
+
 return res.sendStatus(200)
 
 }
 
-/* detect address */
+/* detect delivery area */
 
 if(DELIVERY[text]){
 
 order.address = text
+
 order.delivery = DELIVERY[text]
 
 order.total = order.items.length + order.delivery
@@ -225,25 +256,29 @@ return res.sendStatus(200)
 
 }
 
+/* detect items */
+
+if(text.includes("ديناميت")){
+order.items.push("ديناميت ×1")
+}
+
+if(text.includes("شاورما")){
+order.items.push("صاروخ شاورما ×1")
+}
+
+if(text.includes("زنجر")){
+order.items.push("زنجر ×1")
+}
+
+if(text.includes("برجر")){
+order.items.push("برجر ×1")
+}
+
 /* AI reply */
 
 const aiReply = await runAI(text)
 
 await sendMessage(chatId,aiReply)
-
-/* simple order detect */
-
-if(text?.includes("ديناميت")){
-
-order.items.push("ديناميت ×1")
-
-}
-
-if(text?.includes("شاورما")){
-
-order.items.push("شاورما ×1")
-
-}
 
 res.sendStatus(200)
 
