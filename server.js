@@ -15,97 +15,25 @@ const DELIVERY_SHEET_URL = process.env.DELIVERY_SHEET_URL
 const ORDER_GROUP_ID = "120363407952234395@g.us"
 
 /* ========================= */
-/* MENU */
+/* MENU (SYSTEM ONLY) */
 /* ========================= */
 
 const MENU = {
-"خابور كباب":2,
-"الوجبة العملاقة سناكات":3,
-"الوجبة العائلية سناكات":5,
-"الوجبة الاقتصادية سناكات":2,
-"وجبة زنجر عادي":2,
-"قمبلة رمضان برجر":2.25,
-"الوجبة الاقتصادية شورما":2,
+"ديناميت":1,
 "صاروخ الشاورما":1.5,
-"زنجر ديناميت العرض":2,
-"الشاورما العائلية الاوفر":5,
-"وجبة برجر لحمة 150 غم":2,
+"قنبلة رمضان":2.25,
+"خابور كباب":2,
+"وجبة زنجر":2,
 "وجبة سكالوب":2,
-"وجبات الشورما الفردية":1.5
-}
-
-/* ========================= */
-/* الصور */
-/* ========================= */
-
-const IMAGES = {
-"خابور كباب":"https://i.imgur.com/lhWRxlO.jpg",
-"الوجبة العملاقة سناكات":"https://i.imgur.com/YBdJtXk.jpg",
-"الوجبة العائلية سناكات":"https://i.imgur.com/6uzbeo4.jpg",
-"الوجبة الاقتصادية سناكات":"https://i.imgur.com/pvBkKto.jpg",
-"وجبة زنجر عادي":"https://i.imgur.com/wgjBv86.jpg",
-"قمبلة رمضان برجر":"https://i.imgur.com/NrPMh4h.jpg",
-"الوجبة الاقتصادية شورما":"https://i.imgur.com/rmq4PS0.jpg",
-"صاروخ الشاورما":"https://i.imgur.com/KpajIR8.jpg",
-"زنجر ديناميت العرض":"https://i.imgur.com/sZhwxXE.jpg",
-"الشاورما العائلية الاوفر":"https://i.imgur.com/tZedL2M.jpg",
-"وجبة برجر لحمة 150 غم":"https://i.imgur.com/9S1VGKX.jpg",
-"وجبة سكالوب":"https://i.imgur.com/CEdT5cx.jpg",
-"وجبات الشورما الفردية":"https://i.imgur.com/FaZvkHe.jpg"
-}
-
-/* ========================= */
-/* MEMORY */
-/* ========================= */
-
-const MEMORY={}
-
-function getMemory(user){
-
-if(!MEMORY[user]){
-
-MEMORY[user]={
-history:[],
-lastOrder:[]
-}
-
-}
-
-return MEMORY[user]
-
+"وجبة برجر":2,
+"وجبة شاورما":2
 }
 
 /* ========================= */
 
 const ORDERS={}
-const ACTIVE_ORDERS={}
+const MEMORY={}
 let DELIVERY=[]
-let GLOBAL_PROMPT=""
-
-/* ========================= */
-
-async function loadDelivery(){
-
-if(DELIVERY.length>0) return
-
-const res=await axios.get(DELIVERY_SHEET_URL)
-DELIVERY=await csv().fromString(res.data)
-
-}
-
-/* ========================= */
-
-function normalize(text){
-
-if(!text) return ""
-
-return text
-.toLowerCase()
-.replace(/أ|إ|آ/g,"ا")
-.replace(/ة/g,"ه")
-.replace(/ى/g,"ي")
-
-}
 
 /* ========================= */
 
@@ -127,21 +55,45 @@ return ORDERS[user]
 
 /* ========================= */
 
+function getMemory(user){
+
+if(!MEMORY[user]){
+
+MEMORY[user]={
+history:[]
+}
+
+}
+
+return MEMORY[user]
+
+}
+
+/* ========================= */
+
+function normalize(text){
+
+if(!text) return ""
+
+return text
+.toLowerCase()
+.replace(/أ|إ|آ/g,"ا")
+.replace(/ة/g,"ه")
+.replace(/ى/g,"ي")
+
+}
+
+/* ========================= */
+
 function addItem(order,name,qty=1){
 
-const existing=order.items.find(i=>i.name===name)
-
-if(existing){
-existing.qty+=qty
-}else{
+const price=MENU[name]
 
 order.items.push({
 name,
 qty,
-price:MENU[name]
+price
 })
-
-}
 
 }
 
@@ -163,8 +115,13 @@ return t
 
 /* ========================= */
 
-function generateOrderId(){
-return Math.floor(1000+Math.random()*9000)
+async function loadDelivery(){
+
+if(DELIVERY.length>0) return
+
+const res=await axios.get(DELIVERY_SHEET_URL)
+DELIVERY=await csv().fromString(res.data)
+
 }
 
 /* ========================= */
@@ -181,99 +138,29 @@ message
 }
 
 /* ========================= */
-
-async function sendImage(chatId,url,caption){
-
-await axios.post(
-`https://7103.api.greenapi.com/waInstance${ID_INSTANCE}/sendFileByUrl/${GREEN_TOKEN}`,
-{
-chatId,
-urlFile:url,
-fileName:"menu.jpg",
-caption
-})
-
-}
-
-/* ========================= */
-/* AI ORDER */
+/* AI SALES CHAT */
 /* ========================= */
 
-async function extractOrder(text){
-
-try{
-
-const ai=await axios.post(
-"https://api.openai.com/v1/chat/completions",
-{
-model:"gpt-4o-mini",
-messages:[
-{
-role:"system",
-content:`Extract restaurant order.
-
-Menu:
-${Object.keys(MENU).join(",")}
-
-Return JSON:
-{
-items:[{name:"item",qty:number}]
-}`
-},
-{
-role:"user",
-content:text
-}
-]
-},
-{
-headers:{Authorization:`Bearer ${OPENAI_KEY}`}
-}
-)
-
-return JSON.parse(ai.data.choices[0].message.content)
-
-}catch{
-return null
-}
-
-}
-
-/* ========================= */
-/* AI CHAT */
-/* ========================= */
-
-async function aiChat(text, memory){
+async function aiChat(text,memory){
 
 const prompt=`
 
 انت موظف مبيعات في مطعم.
 
-مهم:
-لا تخترع معلومات.
+تكلم مع العميل بطريقة ودية.
+كن طبيعي.
+ساعده يختار طلب.
+اقترح عليه اصناف.
+
 لا تخترع اسعار.
-استخدم فقط المنيو.
+لا تؤكد الطلب.
 
-اذا لم تعرف الجواب قل:
-دعني أتأكد من المطعم.
+فقط تحدث مثل موظف مبيعات.
 
-كن:
-- ودي
-- مختصر
-- طبيعي
-
-هدفك:
-- مساعدة العميل
-- اقتراح وجبات
-- زيادة المبيعات
-
-المنيو:
-${Object.keys(MENU).join(",")}
-
-طلبات العميل السابقة:
-${JSON.stringify(memory.lastOrder)}
-
-${GLOBAL_PROMPT}
+استخدم اسلوب اردني بسيط مثل:
+يا غالي
+ابشر
+ولا يهمك
 
 `
 
@@ -297,6 +184,55 @@ return ai.data.choices[0].message.content
 }
 
 /* ========================= */
+/* AI ORDER EXTRACTION */
+/* ========================= */
+
+async function extractOrder(text){
+
+try{
+
+const ai=await axios.post(
+"https://api.openai.com/v1/chat/completions",
+{
+model:"gpt-4o-mini",
+messages:[
+{
+role:"system",
+content:`
+
+Extract food item and quantity.
+
+Return JSON:
+
+{
+item:"name",
+qty:number
+}
+
+`
+},
+{
+role:"user",
+content:text
+}
+]
+},
+{
+headers:{Authorization:`Bearer ${OPENAI_KEY}`}
+}
+)
+
+return JSON.parse(ai.data.choices[0].message.content)
+
+}catch{
+
+return null
+
+}
+
+}
+
+/* ========================= */
 /* WEBHOOK */
 /* ========================= */
 
@@ -312,6 +248,8 @@ const chatId=req.body.senderData?.chatId
 
 if(!chatId) return
 
+if(chatId.endsWith("@g.us")) return
+
 let message=
 req.body.messageData?.textMessageData?.textMessage ||
 req.body.messageData?.extendedTextMessageData?.text ||
@@ -322,52 +260,34 @@ const memory=getMemory(chatId)
 
 memory.history.push({role:"user",content:message})
 
-if(memory.history.length>8){
+if(memory.history.length>6){
 memory.history.shift()
 }
 
 await loadDelivery()
 
 /* ========================= */
-/* ارسال صورة المنتج */
-/* ========================= */
-
-for(const item in MENU){
-
-if(normalize(message).includes(normalize(item))){
-
-await sendImage(chatId,IMAGES[item],`${item} - ${MENU[item]} دينار`)
-return
-
-}
-
-}
-
-/* ========================= */
-/* استخراج الطلب */
+/* فهم الطلب */
 /* ========================= */
 
 const result=await extractOrder(message)
 
-if(result && result.items){
+if(result && result.item){
 
-for(const item of result.items){
+const itemName=result.item
 
-if(MENU[item.name]){
+if(MENU[itemName]){
 
-addItem(order,item.name,item.qty||1)
+addItem(order,itemName,result.qty||1)
 
-await sendImage(chatId,IMAGES[item.name],item.name)
+await send(chatId,
+`👍 تم إضافة ${itemName}
 
-}
-
-}
-
-memory.lastOrder=order.items
-
-await send(chatId,`👍 تم إضافة الطلب\n💰 المجموع ${total(order)} دينار`)
+💰 المجموع الحالي ${total(order)} دينار`)
 
 return
+
+}
 
 }
 
@@ -382,7 +302,10 @@ if(normalize(message).includes(normalize(row.area))){
 order.area=row.area
 order.delivery=Number(row.price)
 
-await send(chatId,`🚚 التوصيل الى ${row.area}`)
+await send(chatId,
+`🚚 التوصيل الى ${row.area}
+
+رسوم التوصيل ${row.price}`)
 
 return
 
@@ -396,10 +319,6 @@ return
 
 if(normalize(message).includes("تأكيد")){
 
-const orderId=generateOrderId()
-
-ACTIVE_ORDERS[orderId]=order
-
 let itemsText=""
 
 order.items.forEach(i=>{
@@ -408,31 +327,25 @@ itemsText+=`• ${i.name} × ${i.qty}\n`
 
 const text=`
 
-🆕 طلب جديد #${orderId}
+🆕 طلب جديد
 
-🍔 الطلب
 ${itemsText}
 
 📍 ${order.area}
 
 💰 المجموع ${total(order)} دينار
-
-للمندوب:
-اكتب
-
-سحب ${orderId}
 `
 
 await send(ORDER_GROUP_ID,text)
 
-await send(chatId,"تم إرسال الطلب للمطعم 👍")
+await send(chatId,"تم ارسال الطلب للمطعم 👍")
 
 return
 
 }
 
 /* ========================= */
-/* AI CHAT */
+/* AI SALES */
 /* ========================= */
 
 const reply=await aiChat(message,memory)
@@ -446,18 +359,6 @@ await send(chatId,reply)
 console.log("BOT ERROR",e.response?.data || e.message)
 
 }
-
-})
-
-/* ========================= */
-/* PROMPT CONTROL */
-/* ========================= */
-
-app.post("/prompt",(req,res)=>{
-
-GLOBAL_PROMPT=req.body.prompt
-
-res.send("prompt updated")
 
 })
 
