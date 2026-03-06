@@ -1,279 +1,239 @@
 import express from "express"
 import axios from "axios"
+import fs from "fs"
+import csv from "csvtojson"
 
 const app = express()
 app.use(express.json())
 
-/* ================= CONFIG ================= */
+const PORT = process.env.PORT || 3000
 
 const OPENAI_KEY = process.env.OPENAI_KEY
 const GREEN_TOKEN = process.env.GREEN_TOKEN
 const ID_INSTANCE = process.env.ID_INSTANCE
 const DELIVERY_SHEET_URL = process.env.DELIVERY_SHEET_URL
-const GROUP_ID = "120363407952234395@g.us"
 
-const API_URL = `https://7103.api.greenapi.com/waInstance${ID_INSTANCE}`
+const ORDER_GROUP = "120363407952234395@g.us"
 
-/* ================= MEMORY ================= */
+/* ================= */
 
-const SESSIONS = {}
-let DELIVERY = {}
+const MENU = JSON.parse(fs.readFileSync("./menu.json"))
+const IMAGES = JSON.parse(fs.readFileSync("./images.json"))
+const OFFERS = JSON.parse(fs.readFileSync("./offers.json"))
+const MESSAGES = JSON.parse(fs.readFileSync("./messages.json"))
 
-/* ================= LOAD DELIVERY ================= */
+/* ================= */
 
-async function loadDelivery(){
+let DELIVERY=[]
+const ORDERS={}
 
-try{
+/* ================= */
 
-const res = await axios.get(DELIVERY_SHEET_URL)
+function normalize(text){
 
-const rows = res.data.split("\n")
-
-rows.forEach(r=>{
-
-const [area,price] = r.split(",")
-
-if(area) DELIVERY[area.trim()] = Number(price)
-
-})
-
-}catch(e){
-
-console.log("delivery sheet error")
-
-}
-
-}
-
-loadDelivery()
-
-/* ================= SEND WHATSAPP ================= */
-
-async function sendMessage(chatId,text){
-
-await axios.post(
-
-`${API_URL}/sendMessage/${GREEN_TOKEN}`,
-
-{
-chatId,
-message:text
-}
-
-)
-
-}
-
-/* ================= OPENAI ================= */
-
-async function runAI(message){
-
-const res = await axios.post(
-"https://api.openai.com/v1/chat/completions",
-{
-model:"gpt-4o-mini",
-temperature:0,
-response_format:{type:"json_object"},
-messages:[
-{
-role:"system",
-content:`
-انت مندوب طلبات لمطعم في عمان.
-
-ارجع JSON فقط بالشكل:
-
-{
-intent:"",
-items:[],
-reply:""
-}
-
-intent يمكن ان يكون:
-
-order
-confirm
-address
-question
-
-لا تخترع اسعار.
-`
-},
-{
-role:"user",
-content:message
-}
-]
-},
-{
-headers:{
-Authorization:`Bearer ${OPENAI_KEY}`,
-"Content-Type":"application/json"
-}
-}
-)
-
-return JSON.parse(res.data.choices[0].message.content)
-
-}
-
-/* ================= BUILD SUMMARY ================= */
-
-function buildSummary(order){
-
-const items = order.items
-.map(i=>`${i.name} × ${i.qty}`)
-.join("\n")
-
-return `
-
-🧾 ملخص الطلب
-
-${items}
-
-📍 العنوان
-${order.address}
-
-🚚 أجور التوصيل
-${order.delivery}
-
-💰 المجموع
-${order.total}
-
-اكتب "تأكيد الطلب" لتثبيت الطلب
-
-`
-
-}
-
-/* ================= GROUP MESSAGE ================= */
-
-function buildGroupMessage(order){
-
-const items = order.items
-.map(i=>`${i.name} × ${i.qty}`)
-.join("\n")
-
-return `
-
-🚨 طلب جديد
-
-📞 الهاتف
-${order.phone}
-
-📍 العنوان
-${order.address}
-
-🍔 الطلب
-${items}
-
-🚚 التوصيل
-${order.delivery}
-
-💰 المجموع
-${order.total}
-
-#${order.id}
-
-`
-
-}
-
-/* ================= WEBHOOK ================= */
-
-app.post("/webhook",async(req,res)=>{
-
-const body = req.body
-
-const chatId = body.senderData?.chatId
-const text = body.messageData?.textMessageData?.textMessage
-
-if(!chatId) return res.sendStatus(200)
-
-/* ignore groups */
-
-if(chatId.includes("@g.us")) return res.sendStatus(200)
-
-/* create session */
-
-if(!SESSIONS[chatId]){
-
-SESSIONS[chatId]={
-
-id:"ORD"+Date.now(),
-phone:chatId,
-items:[],
-address:"",
-delivery:0,
-total:0
-
-}
-
-}
-
-const order = SESSIONS[chatId]
-
-/* AI */
-
-const ai = await runAI(text)
-
-/* reply */
-
-if(ai.reply){
-
-await sendMessage(chatId,ai.reply)
-
-}
-
-/* add items */
-
-if(ai.intent==="order"){
-
-ai.items.forEach(i=>{
-
-order.items.push(i)
-
-})
-
-}
-
-/* address */
-
-if(ai.intent==="address"){
-
-order.address = text
-
-order.delivery = DELIVERY[text] || 0
-
-order.total = order.items.length + order.delivery
-
-const summary = buildSummary(order)
-
-await sendMessage(chatId,summary)
-
-}
-
-/* confirm */
-
-if(ai.intent==="confirm"){
-
-const msg = buildGroupMessage(order)
-
-await sendMessage(GROUP_ID,msg)
-
-await sendMessage(chatId,"تم تأكيد الطلب ✅")
+return text
+.toLowerCase()
+.replace(/أ|إ|آ/g,"ا")
+.replace(/ة/g,"ه")
+.replace(/ى/g,"ي")
 
 }
 
 /* ================= */
 
+function findItem(text){
+
+const clean = normalize(text)
+
+for(const item in MENU){
+
+if(clean.includes(normalize(item))){
+
+return item
+
+}
+
+}
+
+return null
+
+}
+
+/* ================= */
+
+function suggest(){
+
+return OFFERS[Math.floor(Math.random()*OFFERS.length)]
+
+}
+
+/* ================= */
+
+async function send(chatId,message){
+
+await axios.post(
+`https://7103.api.greenapi.com/waInstance${ID_INSTANCE}/sendMessage/${GREEN_TOKEN}`,
+{chatId,message}
+)
+
+}
+
+/* ================= */
+
+async function sendImage(chatId,url,caption){
+
+await axios.post(
+`https://7103.api.greenapi.com/waInstance${ID_INSTANCE}/sendFileByUrl/${GREEN_TOKEN}`,
+{
+chatId,
+urlFile:url,
+fileName:"menu.jpg",
+caption
+}
+)
+
+}
+
+/* ================= */
+/* تحليل صورة إعلان */
+/* ================= */
+
+async function analyzeImage(url){
+
+const ai = await axios.post(
+"https://api.openai.com/v1/chat/completions",
+{
+model:"gpt-4o-mini",
+messages:[
+{
+role:"system",
+content:`Identify the food item from this menu only.
+
+Menu:
+${Object.keys(MENU).join(",")}
+
+Return only the item name`
+},
+{
+role:"user",
+content:[
+{type:"text",text:"what food is this"},
+{type:"image_url",image_url:{url:url}}
+]
+}
+]
+},
+{
+headers:{Authorization:`Bearer ${OPENAI_KEY}`}
+}
+)
+
+return ai.data.choices[0].message.content.trim()
+
+}
+
+/* ================= */
+
+app.post("/webhook",async(req,res)=>{
+
 res.sendStatus(200)
+
+try{
+
+const chatId = req.body.senderData?.chatId
+
+if(!chatId) return
+if(chatId.endsWith("@g.us")) return
+
+let message =
+req.body.messageData?.textMessageData?.textMessage ||
+req.body.messageData?.extendedTextMessageData?.text ||
+""
+
+/* صورة */
+
+let imageUrl = null
+
+if(req.body.messageData?.fileMessageData){
+
+imageUrl = req.body.messageData.fileMessageData.downloadUrl
+
+}
+
+/* ================= */
+/* فهم صورة اعلان */
+/* ================= */
+
+if(imageUrl){
+
+const item = await analyzeImage(imageUrl)
+
+if(IMAGES[item]){
+
+await sendImage(chatId,IMAGES[item],item)
+
+await send(chatId,"هل ترغب بطلب هذا الصنف؟")
+
+}
+
+return
+
+}
+
+/* ================= */
+
+const item = findItem(message)
+
+if(item){
+
+await sendImage(chatId,IMAGES[item],item)
+
+await send(chatId,
+
+`تم اختيار ${item} 👍
+
+${MESSAGES.upsell}`)
+
+return
+
+}
+
+/* ================= */
+
+if(message.includes("منيو")){
+
+for(const item in IMAGES){
+
+await sendImage(chatId,IMAGES[item],item)
+
+}
+
+return
+
+}
+
+/* ================= */
+
+await send(chatId,
+
+`${MESSAGES.welcome}
+
+${suggest()}
+
+${MESSAGES.ask}`)
+
+}catch(e){
+
+console.log(e)
+
+}
 
 })
 
-/* ================= SERVER ================= */
+app.get("/",(req,res)=>{
+res.send("Restaurant Bot Running")
+})
 
-app.listen(3000,()=>{
-
+app.listen(PORT,()=>{
 console.log("BOT RUNNING")
-
 })
