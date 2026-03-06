@@ -1,8 +1,5 @@
 import express from "express";
 import axios from "axios";
-import fs from "fs";
-import FormData from "form-data";
-import path from "path";
 
 const app = express();
 app.use(express.json());
@@ -19,105 +16,89 @@ const SETTINGS = {
 
 const SESSIONS = {};
 
-// دالة لجلب الوقت في الأردن لمنع تخبط المواعيد
+// دالة لجلب الوقت بدقة لمنع الهلوسة في المواعيد
 const getJordanTime = () => {
   return new Intl.DateTimeFormat('ar-JO', {
     timeZone: 'Asia/Amman',
-    weekday: 'long',
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: true
+    hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true,
+    weekday: 'long', day: 'numeric', month: 'long'
   }).format(new Date());
 };
 
 const getSystemPrompt = () => {
   return `
-أنت "صابر". موظف استقبال مطعم شاورما. ردودك قصيرة، أردنية، وذكية جداً.
-الوقت الحالي في الأردن: ${getJordanTime()}
+أنت "صابر". موظف استقبال مطعم شاورما أردني.
+الوقت الآن في عمان: ${getJordanTime()}
 
-⏰ **الدوام**: من 2 ظهراً لـ 4 فجراً.
-📅 **نظام الحجز**: مسموح حجز طلبات لموعد لاحق (اليوم أو غداً).
+⚠️ **قواعد صارمة لمنع الهلوسة**:
+1. **ممنوع التكرار**: إذا العميل طلب صنف (مثل القنبلة أو الخابور)، لا تسأله "شو طلبك" مرة ثانية.
+2. **ممنوع الترحيب المكرر**: لا تبعت "كيف بقدر أساعدك" إذا المحادثة أصلاً شغالة.
+3. **الحجز**: الحجز متاح ومطلوب. إذا طلب العميل موعد مستقبلي، قوله "تم" واسأله عن الساعة.
+4. **الصور**: إذا بعت صورة عرض، حللها فوراً ولا تنكر وجود العروض.
+5. **الملخص**: احسب السعر النهائي (أصناف + توصيل) بدقة. طبربور 3 دنانير دائماً.
+6. **التأكيد**: لما يثبت الطلب، ابعت [KITCHEN_GO] مع كل التفاصيل (الاسم، الموعد، العنوان، الأصناف).
 
-🍔 **المنيو المعتمد**:
+📋 المنيو:
 ${SETTINGS.DYNAMIC_MENU}
 
-🚚 **التوصيل**:
+🚚 التوصيل:
 ${SETTINGS.DYNAMIC_DELIVERY}
-
-⚠️ **قواعد منع الهلوسة**:
-1. **الذاكرة**: تذكر الأصناف التي طلبها العميل (مثل القنبلة أو الخابور). إذا حدد الطلب، لا تسأله "شو طلبك".
-2. **الترحيب**: لا ترحب بالعميل (أهلين، كيف بقدر أساعدك) إذا كنت في منتصف محادثة طلب.
-3. **الحجز**: إذا طلب العميل موعداً مستقبلياً، ثبته فوراً في الملخص.
-4. **الدقة**: التوصيل لطبربور 3 دنانير دائماً.
-5. **الصور**: حلل الصورة فوراً ولا تنكر وجود العروض إذا كانت الصورة تحتوي على عرض.
-6. **التأكيد**: أرسل [KITCHEN_GO] فقط عند التأكيد النهائي شامل الموعد والبيانات.
 `;
 };
 
 app.post("/webhook", async (req, res) => {
   res.sendStatus(200);
   const body = req.body;
-  let chatId = body.senderData?.chatId;
+  const chatId = body.senderData?.chatId;
 
   if (!chatId || chatId.endsWith("@g.us")) return;
 
-  if (!SESSIONS[chatId]) SESSIONS[chatId] = { history: [] };
-  const session = SESSIONS[chatId];
+  if (!SESSIONS[chatId]) SESSIONS[chatId] = [];
+  
+  let incomingText = "";
+  let userMessageContent = [];
 
-  let userContent = [];
-  let logText = "";
-
-  // 1. معالجة الصور
+  // التعامل مع الصور (تحليل العروض)
   if (body.typeWebhook === "incomingFileMessageReceived" && body.messageData?.fileMessageData?.mimeType?.includes("image")) {
-    userContent.push({ type: "image_url", image_url: { url: body.messageData.fileMessageData.downloadUrl } });
-    userContent.push({ type: "text", text: "حلل الصورة للطلب أو العرض بناءً على المنيو." });
-    logText = "[صورة]";
-  } 
-  // 2. معالجة النصوص والفويس
-  else {
-    const text = body.messageData?.textMessageData?.textMessage || body.messageData?.extendedTextMessageData?.text || "";
-    if (text) {
-      userContent.push({ type: "text", text: text });
-      logText = text;
-    }
+    userMessageContent.push({ type: "image_url", image_url: { url: body.messageData.fileMessageData.downloadUrl } });
+    userMessageContent.push({ type: "text", text: "حلل هاي الصورة، هل هي عرض؟" });
+    incomingText = "[صورة عرض]";
+  } else {
+    incomingText = body.messageData?.textMessageData?.textMessage || body.messageData?.extendedTextMessageData?.text || "";
+    if (!incomingText) return;
+    userMessageContent.push({ type: "text", text: incomingText });
   }
-
-  if (userContent.length === 0) return;
 
   try {
     const ai = await axios.post("https://api.openai.com/v1/chat/completions", {
       model: "gpt-4o",
       messages: [
         { role: "system", content: getSystemPrompt() },
-        ...session.history.slice(-30), // استرجاع آخر 30 رسالة بدقة
-        { role: "user", content: userContent }
+        ...SESSIONS[chatId].slice(-15), // تقليل الذاكرة لآخر 15 رسالة فقط لمنع التخبط
+        { role: "user", content: userMessageContent }
       ],
-      temperature: 0
+      temperature: 0 // تصفير الـ temperature يمنع التأليف تماماً
     }, { headers: { Authorization: `Bearer ${SETTINGS.OPENAI_KEY}` } });
 
     let reply = ai.data.choices[0].message.content;
 
     if (reply.includes("[KITCHEN_GO]")) {
-      await sendWA(SETTINGS.KITCHEN_GROUP, reply.replace("[KITCHEN_GO]", "🔔 *طلب/حجز مؤكد*"));
-      await sendWA(chatId, "أبشر يا غالي، تم تثبيت الطلب والموعد بنجاح! 🙏");
-      delete SESSIONS[chatId];
+      await sendWA(SETTINGS.KITCHEN_GROUP, reply.replace("[KITCHEN_GO]", "🔥 *طلب مؤكد*"));
+      await sendWA(chatId, "أبشر، طلبك صار بالمطبخ ورح يوصلك عالموعد! 🙏");
+      SESSIONS[chatId] = []; // تنظيف الذاكرة بعد الطلب بنجاح
       return;
     }
 
     await sendWA(chatId, reply);
     
-    // حفظ المحادثة الفعلية لمنع النسيان (الحل الجذري للهلوسة)
-    session.history.push({ role: "user", content: logText });
-    session.history.push({ role: "assistant", content: reply });
-    
-  } catch (err) { console.error("Saber AI Error"); }
+    // تحديث الذاكرة بنص نظيف
+    SESSIONS[chatId].push({ role: "user", content: incomingText });
+    SESSIONS[chatId].push({ role: "assistant", content: reply });
+  } catch (err) { console.error("AI Error"); }
 });
 
 async function sendWA(chatId, message) {
   try { await axios.post(`${SETTINGS.API_URL}/sendMessage/${SETTINGS.GREEN_TOKEN}`, { chatId, message }); } catch (err) {}
 }
 
-app.listen(3000, () => console.log("Saber Bot - Anti-Hallucination Version"));
+app.listen(3000, () => console.log("Saber Fixed Version Live"));
