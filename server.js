@@ -30,11 +30,18 @@ const PRICES = {
 
 /* ========= العروض ========= */
 
-const OFFERS = {
-  "عرض 1": "ديناميت + بطاطا + بيبسي = 2.5",
-  "عرض 2": "صاروخ شاورما + بطاطا = 2",
-  "عرض 3": "برجر + بطاطا + بيبسي = 2.25"
-};
+const OFFERS_TEXT = `
+🔥 العروض الحالية 🔥
+
+عرض 1
+ديناميت + بطاطا + بيبسي = 2.5
+
+عرض 2
+صاروخ شاورما + بطاطا = 2
+
+عرض 3
+برجر + بطاطا + بيبسي = 2.25
+`;
 
 /* ========= تصحيح الأخطاء ========= */
 
@@ -77,7 +84,7 @@ async function getDeliveryPrice(areaText) {
 
     return zone ? parseFloat(zone.price) : 0;
 
-  } catch (e) {
+  } catch {
 
     return 0;
 
@@ -96,7 +103,7 @@ async function sendWA(chatId, message) {
       { chatId, message }
     );
 
-  } catch (e) {
+  } catch {
 
     console.log("WA Error");
 
@@ -112,21 +119,20 @@ app.post("/webhook", async (req, res) => {
 
   const body = req.body;
 
-  if (
-    body.typeWebhook !== "incomingMessageReceived" ||
-    body.messageData?.typeMessage !== "textMessage"
-  ) return;
+  if (body.typeWebhook !== "incomingMessageReceived") return;
 
   const chatId = body.senderData?.chatId;
+
+  if (!chatId || chatId.endsWith("@g.us")) return;
 
   const text =
     body.messageData?.textMessageData?.textMessage ||
     body.messageData?.extendedTextMessageData?.text ||
     "";
 
-  if (!chatId || chatId.includes("@g.us")) return;
-
   const cleanText = normalize(text.trim());
+
+  if (!cleanText) return;
 
   if (LAST_MESSAGE[chatId] === cleanText) return;
 
@@ -144,3 +150,172 @@ app.post("/webhook", async (req, res) => {
   }
 
   const session = SESSIONS[chatId];
+
+  /* ========= عرض العروض ========= */
+
+  if (
+    cleanText.includes("عرض") ||
+    cleanText.includes("عروض")
+  ) {
+
+    await sendWA(chatId, OFFERS_TEXT);
+    return;
+
+  }
+
+  /* ========= برومبت الذكاء ========= */
+
+  const systemPrompt = `
+أنت كاشير مطعم Saber Jo Snack.
+
+المنيو:
+${JSON.stringify(PRICES)}
+
+القواعد:
+
+- العميل قد يكتب عامية أو أخطاء
+- صحح الكلمات تلقائياً
+- تحدث باللهجة الأردنية
+- لا تكتب كلام طويل
+
+استخرج الأوامر فقط بالصيغة:
+
+[ADD:اسم_الصنف:الكمية]
+
+لو ذكر منطقة:
+
+[AREA:اسم_المنطقة]
+
+لو أكد الطلب:
+
+[CONFIRM]
+`;
+
+  try {
+
+    const aiRes = await axios.post(
+      "https://api.openai.com/v1/chat/completions",
+      {
+        model: "gpt-4o-mini",
+        temperature: 0,
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: cleanText }
+        ]
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${SETTINGS.OPENAI_KEY}`
+        }
+      }
+    );
+
+    const content = aiRes.data.choices[0].message.content;
+
+    /* ========= إضافة طلب ========= */
+
+    if (content.includes("[ADD:")) {
+
+      const matches = content.match(/\[ADD:(.*?):(\d+)\]/gi);
+
+      matches?.forEach(m => {
+
+        const parts = m.match(/\[ADD:(.*?):(\d+)\]/);
+
+        const name = parts[1];
+        const qty = parseInt(parts[2]);
+
+        const price = PRICES[name] || 0;
+
+        if (price > 0) {
+
+          session.items.push({
+            name,
+            qty,
+            price
+          });
+
+        }
+
+      });
+
+    }
+
+    /* ========= المنطقة ========= */
+
+    if (content.includes("[AREA:")) {
+
+      const area = content.match(/\[AREA:(.*?)\]/)[1];
+
+      session.area = area;
+
+      session.delivery = await getDeliveryPrice(area);
+
+    }
+
+    /* ========= الحساب ========= */
+
+    const itemsTotal = session.items.reduce(
+      (sum, i) => sum + (i.price * i.qty),
+      0
+    );
+
+    session.total = itemsTotal + session.delivery;
+
+    /* ========= تأكيد الطلب ========= */
+
+    if (content.includes("[CONFIRM]") && session.items.length > 0) {
+
+      const summary = `
+🚨 طلب جديد
+
+العميل:
+${chatId}
+
+الطلب:
+${JSON.stringify(session.items)}
+
+المنطقة:
+${session.area}
+
+المجموع:
+${session.total} دينار
+`;
+
+      await sendWA(SETTINGS.GROUP_ID, summary);
+
+      await sendWA(chatId, "تم تأكيد طلبك يا غالي ✅");
+
+      delete SESSIONS[chatId];
+
+      return;
+
+    }
+
+    /* ========= الرد للعميل ========= */
+
+    let reply = content.replace(/\[.*?\]/g, "").trim();
+
+    if (session.total > 0) {
+
+      reply += `\n\nالمجموع الحالي: ${session.total} دينار`;
+
+    }
+
+    await sendWA(chatId, reply);
+
+  } catch {
+
+    console.log("AI Error");
+
+  }
+
+});
+
+/* ========= تشغيل السيرفر ========= */
+
+app.listen(3000, () => {
+
+  console.log("🚀 BOT RUNNING");
+
+});
