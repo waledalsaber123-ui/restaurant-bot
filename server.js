@@ -172,9 +172,64 @@ ${order.total}
 
 /* ========= WEBHOOK ========= */
 
-app.post("/webhook",async(req,res)=>{
+/* ========= WEBHOOK المصحح ========= */
 
-const body = req.body
+app.post("/webhook", async (req, res) => {
+    // 1. أهم خطوة: رد فوراً بـ 200 لمنع التكرار (Spam)
+    res.sendStatus(200);
+
+    const body = req.body;
+
+    // تجاهل أي شيء ليس رسالة قادمة
+    if (body.typeWebhook !== "incomingMessageReceived") return;
+
+    const chatId = body.senderData?.chatId;
+    const text = body.messageData?.textMessageData?.textMessage || 
+                 body.messageData?.extendedTextMessageData?.text; // دعم الرسائل من الأجهزة المرتبطة
+
+    if (!chatId || !text || chatId.includes("@g.us")) return;
+
+    // 2. منع معالجة نفس الرسالة مرتين (تحسين بسيط)
+    if (LAST_MESSAGE[chatId] === text) return;
+    LAST_MESSAGE[chatId] = text;
+
+    // تهيئة الجلسة
+    if (!SESSIONS[chatId]) {
+        SESSIONS[chatId] = { id: "ORD" + Date.now(), phone: chatId, items: [], address: "", delivery: 0, total: 0 };
+    }
+    const order = SESSIONS[chatId];
+
+    // 3. المنطق اليدوي (أسرع من الـ AI)
+    if (text.includes("تأكيد")) {
+        const msg = buildGroupMessage(order);
+        await sendMessage(GROUP_ID, msg);
+        await sendMessage(chatId, "تم تأكيد الطلب ✅");
+        delete SESSIONS[chatId];
+        return;
+    }
+
+    if (DELIVERY[text]) {
+        order.address = text;
+        order.delivery = DELIVERY[text];
+        order.total = order.items.length + order.delivery; // ملاحظة: يفضل حساب الأسعار الحقيقية هنا
+        await sendMessage(chatId, buildSummary(order));
+        return;
+    }
+
+    // إضافة الأصناف يدوياً (حسب كودك)
+    const itemsKeys = ["ديناميت", "شاورما", "زنجر", "برجر"];
+    itemsKeys.forEach(key => {
+        if (text.includes(key)) order.items.push(`${key} ×1`);
+    });
+
+    // 4. تشغيل الـ AI فقط إذا لم تكن رسالة "أمر" مباشرة
+    try {
+        const aiReply = await runAI(text);
+        await sendMessage(chatId, aiReply);
+    } catch (e) {
+        console.log("AI Runtime Error");
+    }
+});
 
 /* ignore events */
 
