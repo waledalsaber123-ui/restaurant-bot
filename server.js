@@ -19,26 +19,41 @@ const SETTINGS = {
 
 const SESSIONS = {};
 
+// دالة لجلب الوقت في الأردن لمنع تخبط المواعيد
+const getJordanTime = () => {
+  return new Intl.DateTimeFormat('ar-JO', {
+    timeZone: 'Asia/Amman',
+    weekday: 'long',
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: true
+  }).format(new Date());
+};
+
 const getSystemPrompt = () => {
   return `
-أنت "صابر"، مساعد مطعم شاورما ذكي ومحترف. ردودك قصيرة، أردنية، ومباشرة.
+أنت "صابر". موظف استقبال مطعم شاورما. ردودك قصيرة، أردنية، وذكية جداً.
+الوقت الحالي في الأردن: ${getJordanTime()}
 
-⏰ **الدوام**: يومياً من 2 ظهراً لـ 4 فجراً.
-📍 **الموقع**: عمان، شارع الجامعة، طلوع هافانا.
+⏰ **الدوام**: من 2 ظهراً لـ 4 فجراً.
+📅 **نظام الحجز**: مسموح حجز طلبات لموعد لاحق (اليوم أو غداً).
 
-🍔 **المنيو والأسعار**:
+🍔 **المنيو المعتمد**:
 ${SETTINGS.DYNAMIC_MENU}
 
 🚚 **التوصيل**:
 ${SETTINGS.DYNAMIC_DELIVERY}
 
-⚠️ **قواعد العمل (الحل النهائي)**:
-1. **الصور والعروض**: إذا أرسل العميل صورة، حللها فوراً. لا تقل "لا يوجد عروض" إذا كانت الصورة تحتوي على عرض.
-2. **الخصوصية**: ممنوع الرد نهائياً في الجروبات.
-3. **الذاكرة**: تذكر طلب العميل (مثلاً القنبلة أو الخابور) ولا ترجع تسأل "شو طلبك".
-4. **الدقة**: احسب المجموع (أصناف + توصيل) بدقة. طبربور 3 دنانير دائماً.
-5. **البيانات**: لا تطلب الاسم والرقم إلا في نهاية الطلب وبعد حساب السعر.
-6. **التأكيد**: أرسل [KITCHEN_GO] فقط عند كتابة العميل "تم" أو "أكد".
+⚠️ **قواعد منع الهلوسة**:
+1. **الذاكرة**: تذكر الأصناف التي طلبها العميل (مثل القنبلة أو الخابور). إذا حدد الطلب، لا تسأله "شو طلبك".
+2. **الترحيب**: لا ترحب بالعميل (أهلين، كيف بقدر أساعدك) إذا كنت في منتصف محادثة طلب.
+3. **الحجز**: إذا طلب العميل موعداً مستقبلياً، ثبته فوراً في الملخص.
+4. **الدقة**: التوصيل لطبربور 3 دنانير دائماً.
+5. **الصور**: حلل الصورة فوراً ولا تنكر وجود العروض إذا كانت الصورة تحتوي على عرض.
+6. **التأكيد**: أرسل [KITCHEN_GO] فقط عند التأكيد النهائي شامل الموعد والبيانات.
 `;
 };
 
@@ -47,38 +62,37 @@ app.post("/webhook", async (req, res) => {
   const body = req.body;
   let chatId = body.senderData?.chatId;
 
-  // منع الرد في الجروبات
   if (!chatId || chatId.endsWith("@g.us")) return;
 
   if (!SESSIONS[chatId]) SESSIONS[chatId] = { history: [] };
   const session = SESSIONS[chatId];
 
   let userContent = [];
+  let logText = "";
 
-  // 1. معالجة الصور (رؤية العروض)
+  // 1. معالجة الصور
   if (body.typeWebhook === "incomingFileMessageReceived" && body.messageData?.fileMessageData?.mimeType?.includes("image")) {
-    userContent.push({ type: "text", text: "حلل هذه الصورة جيداً. إذا كانت عرضاً، تفاعل معه بناءً على محتواه." });
     userContent.push({ type: "image_url", image_url: { url: body.messageData.fileMessageData.downloadUrl } });
+    userContent.push({ type: "text", text: "حلل الصورة للطلب أو العرض بناءً على المنيو." });
+    logText = "[صورة]";
   } 
-  // 2. معالجة الفويس (سمع الطلب)
-  else if (body.typeWebhook === "incomingFileMessageReceived" && body.messageData?.fileMessageData?.mimeType?.includes("audio")) {
-    const transcript = await transcribeVoice(body.messageData.fileMessageData.downloadUrl);
-    userContent.push({ type: "text", text: transcript });
-  }
-  // 3. معالجة النصوص
-  else if (body.typeWebhook === "incomingMessageReceived") {
+  // 2. معالجة النصوص والفويس
+  else {
     const text = body.messageData?.textMessageData?.textMessage || body.messageData?.extendedTextMessageData?.text || "";
-    userContent.push({ type: "text", text: text });
+    if (text) {
+      userContent.push({ type: "text", text: text });
+      logText = text;
+    }
   }
 
   if (userContent.length === 0) return;
 
   try {
     const ai = await axios.post("https://api.openai.com/v1/chat/completions", {
-      model: "gpt-4o", // موديل يدعم الرؤية والتحليل العميق
+      model: "gpt-4o",
       messages: [
         { role: "system", content: getSystemPrompt() },
-        ...session.history.slice(-40),
+        ...session.history.slice(-30), // استرجاع آخر 30 رسالة بدقة
         { role: "user", content: userContent }
       ],
       temperature: 0
@@ -87,39 +101,23 @@ app.post("/webhook", async (req, res) => {
     let reply = ai.data.choices[0].message.content;
 
     if (reply.includes("[KITCHEN_GO]")) {
-      await sendWA(SETTINGS.KITCHEN_GROUP, reply.replace("[KITCHEN_GO]", "🔥 *طلب معتمد جديد*"));
-      await sendWA(chatId, "أبشر، طلبك صار بالمطبخ. نورتنا! 🙏");
+      await sendWA(SETTINGS.KITCHEN_GROUP, reply.replace("[KITCHEN_GO]", "🔔 *طلب/حجز مؤكد*"));
+      await sendWA(chatId, "أبشر يا غالي، تم تثبيت الطلب والموعد بنجاح! 🙏");
       delete SESSIONS[chatId];
       return;
     }
 
     await sendWA(chatId, reply);
     
-    // حفظ النص فقط لتوفير الذاكرة
-    let logText = userContent.find(c => c.type === "text")?.text || "[وسائط]";
-    session.history.push({ role: "user", content: logText }, { role: "assistant", content: reply });
-  } catch (err) { console.error("Error in Saber Engine"); }
+    // حفظ المحادثة الفعلية لمنع النسيان (الحل الجذري للهلوسة)
+    session.history.push({ role: "user", content: logText });
+    session.history.push({ role: "assistant", content: reply });
+    
+  } catch (err) { console.error("Saber AI Error"); }
 });
-
-/* ================= الوظائف المساعدة ================= */
-async function transcribeVoice(url) {
-  try {
-    const response = await axios.get(url, { responseType: 'arraybuffer' });
-    const filePath = path.join("/tmp", `v_${Date.now()}.ogg`);
-    fs.writeFileSync(filePath, Buffer.from(response.data));
-    const formData = new FormData();
-    formData.append("file", fs.createReadStream(filePath));
-    formData.append("model", "whisper-1");
-    const res = await axios.post("https://api.openai.com/v1/audio/transcriptions", formData, {
-      headers: { ...formData.getHeaders(), Authorization: `Bearer ${SETTINGS.OPENAI_KEY}` }
-    });
-    fs.unlinkSync(filePath);
-    return res.data.text;
-  } catch (err) { return "رسالة صوتية"; }
-}
 
 async function sendWA(chatId, message) {
   try { await axios.post(`${SETTINGS.API_URL}/sendMessage/${SETTINGS.GREEN_TOKEN}`, { chatId, message }); } catch (err) {}
 }
 
-app.listen(3000, () => console.log("Saber Bot - Master AI Live"));
+app.listen(3000, () => console.log("Saber Bot - Anti-Hallucination Version"));
