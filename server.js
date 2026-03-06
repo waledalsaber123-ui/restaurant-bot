@@ -1,321 +1,134 @@
 import express from "express";
 import axios from "axios";
-import csv from "csvtojson";
 
 const app = express();
 app.use(express.json());
 
-/* ========= الإعدادات ========= */
-
+/* ========= الإعدادات الأساسية ========= */
 const SETTINGS = {
   OPENAI_KEY: process.env.OPENAI_KEY,
   GREEN_TOKEN: process.env.GREEN_TOKEN,
   ID_INSTANCE: process.env.ID_INSTANCE,
-  SHEET_URL: process.env.DELIVERY_SHEET_URL,
   GROUP_ID: "120363407952234395@g.us",
   API_URL: `https://7103.api.greenapi.com/waInstance${process.env.ID_INSTANCE}`
 };
 
-/* ========= المنيو ========= */
-
-const PRICES = {
-  "ديناميت": 1,
-  "صاروخ الشاورما": 1.5,
-  "قنبلة رمضان": 2.25,
-  "خابور كباب": 2,
-  "زنجر": 1.5,
-  "برجر": 1.5,
-  "شاورما عادي": 1
-};
-
-/* ========= العروض ========= */
-
-const OFFERS_TEXT = `
-🔥 العروض الحالية 🔥
-
-عرض 1
-ديناميت + بطاطا + بيبسي = 2.5
-
-عرض 2
-صاروخ شاورما + بطاطا = 2
-
-عرض 3
-برجر + بطاطا + بيبسي = 2.25
-`;
-
-/* ========= تصحيح الأخطاء ========= */
-
-const FIXES = {
-  "دينمايت": "ديناميت",
-  "ديناميتين": "ديناميت 2",
-  "دينمايتين": "ديناميت 2",
-  "برجرين": "برجر 2",
-  "زنجرين": "زنجر 2",
-  "صاروخين": "صاروخ الشاورما 2"
-};
-
-function normalize(text) {
-
-  let t = text;
-
-  Object.keys(FIXES).forEach(k => {
-    t = t.replaceAll(k, FIXES[k]);
-  });
-
-  return t;
-}
-
-/* ========= الجلسات ========= */
-
+/* ========= الجلسات الحالية ========= */
 const SESSIONS = {};
-const LAST_MESSAGE = {};
-
-/* ========= حساب التوصيل ========= */
-
-async function getDeliveryPrice(areaText) {
-
-  try {
-
-    const res = await axios.get(SETTINGS.SHEET_URL);
-
-    const data = await csv().fromString(res.data);
-
-    const zone = data.find(d => areaText.includes(d.area.trim()));
-
-    return zone ? parseFloat(zone.price) : 0;
-
-  } catch {
-
-    return 0;
-
-  }
-
-}
 
 /* ========= إرسال واتساب ========= */
-
 async function sendWA(chatId, message) {
-
   try {
-
     await axios.post(
       `${SETTINGS.API_URL}/sendMessage/${SETTINGS.GREEN_TOKEN}`,
       { chatId, message }
     );
-
-  } catch {
-
-    console.log("WA Error");
-
+  } catch (err) {
+    console.error("WA Error:", err.message);
   }
-
 }
 
 /* ========= Webhook ========= */
-
 app.post("/webhook", async (req, res) => {
-
   res.sendStatus(200);
 
   const body = req.body;
-
   if (body.typeWebhook !== "incomingMessageReceived") return;
 
   const chatId = body.senderData?.chatId;
-
   if (!chatId || chatId.endsWith("@g.us")) return;
 
-  const text =
-    body.messageData?.textMessageData?.textMessage ||
-    body.messageData?.extendedTextMessageData?.text ||
-    "";
+  const text = body.messageData?.textMessageData?.textMessage || 
+               body.messageData?.extendedTextMessageData?.text || "";
 
-  const cleanText = normalize(text.trim());
+  if (!text.trim()) return;
 
-  if (!cleanText) return;
-
-  if (LAST_MESSAGE[chatId] === cleanText) return;
-
-  LAST_MESSAGE[chatId] = cleanText;
-
+  // إنشاء جلسة جديدة إذا لم تكن موجودة
   if (!SESSIONS[chatId]) {
-
-    SESSIONS[chatId] = {
-      items: [],
-      area: "",
-      delivery: 0,
-      total: 0
-    };
-
+    SESSIONS[chatId] = { history: [] };
   }
 
   const session = SESSIONS[chatId];
 
-  /* ========= عرض العروض ========= */
-
-  if (
-    cleanText.includes("عرض") ||
-    cleanText.includes("عروض")
-  ) {
-
-    await sendWA(chatId, OFFERS_TEXT);
-    return;
-
-  }
-
-  /* ========= برومبت الذكاء ========= */
-
+  /* ========= البرومبت الشامل (العقل المدبر) ========= 
+     ملاحظة: كل التفاصيل (أسعار، مناطق، عروض) صارت هون
+  */
   const systemPrompt = `
-أنت كاشير مطعم Saber Jo Snack.
+أنت كاشير ذكي لمطعم "Saber Jo Snack" في الأردن.
+تحدث بلهجة أردنية شعبية ولطيفة (مثلاً: يا غالي، من عيوني، أبشر).
 
-المنيو:
-${JSON.stringify(PRICES)}
+1. المنيو والأسعار:
+- ديناميت: 1 دينار
+- صاروخ شاورما: 1.5 دينار
+- قنبلة رمضان: 2.25 دينار
+- خابور كباب: 2 دينار
+- زنجر / برجر: 1.5 دينار
+- شاورما عادي: 1 دينار
 
-القواعد:
+2. العروض:
+- عرض 1 (ديناميت + بطاطا + بيبسي) = 2.5
+- عرض 2 (صاروخ شاورما + بطاطا) = 2
+- عرض 3 (برجر + بطاطا + بيبسي) = 2.25
 
-- العميل قد يكتب عامية أو أخطاء
-- صحح الكلمات تلقائياً
-- تحدث باللهجة الأردنية
-- لا تكتب كلام طويل
+3. مناطق التوصيل:
+- الجبيهة، تلاع العلي: 1 دينار
+- صويلح، الجامعة: 1.5 دينار
+- خلدة، مرج الحمام: 2 دينار
+- أي منطقة ثانية: 2.5 دينار
 
-استخرج الأوامر فقط بالصيغة:
+4. القواعد البرمجية (رد عليّ دائماً بهذه الصيغ في نهاية كلامك):
+- لإضافة صنف: [ADD:اسم_الصنف:الكمية:السعر_الواحد]
+- لتحديد المنطقة: [AREA:اسم_المنطقة:سعر_التوصيل]
+- للتأكيد النهائي: [CONFIRM]
 
-[ADD:اسم_الصنف:الكمية]
-
-لو ذكر منطقة:
-
-[AREA:اسم_المنطقة]
-
-لو أكد الطلب:
-
-[CONFIRM]
+5. طريقة التعامل:
+- إذا العميل طلب "عرض"، وضّح له العروض المتاحة.
+- صحح الكلمات (مثلاً "دينمايتين" تعني ديناميت عدد 2).
+- احسب المجموع دائماً في عقلك وأخبر العميل به.
 `;
 
   try {
-
     const aiRes = await axios.post(
       "https://api.openai.com/v1/chat/completions",
       {
         model: "gpt-4o-mini",
-        temperature: 0,
         messages: [
           { role: "system", content: systemPrompt },
-          { role: "user", content: cleanText }
-        ]
+          ...session.history.slice(-5), // إرسال آخر 5 رسائل للسياق
+          { role: "user", content: text }
+        ],
+        temperature: 0.3
       },
-      {
-        headers: {
-          Authorization: `Bearer ${SETTINGS.OPENAI_KEY}`
-        }
-      }
+      { headers: { Authorization: `Bearer ${SETTINGS.OPENAI_KEY}` } }
     );
 
-    const content = aiRes.data.choices[0].message.content;
+    const aiResponse = aiRes.data.choices[0].message.content;
+    
+    // حفظ المحادثة في الذاكرة المؤقتة
+    session.history.push({ role: "user", content: text });
+    session.history.push({ role: "assistant", content: aiResponse });
 
-    /* ========= إضافة طلب ========= */
-
-    if (content.includes("[ADD:")) {
-
-      const matches = content.match(/\[ADD:(.*?):(\d+)\]/gi);
-
-      matches?.forEach(m => {
-
-        const parts = m.match(/\[ADD:(.*?):(\d+)\]/);
-
-        const name = parts[1];
-        const qty = parseInt(parts[2]);
-
-        const price = PRICES[name] || 0;
-
-        if (price > 0) {
-
-          session.items.push({
-            name,
-            qty,
-            price
-          });
-
-        }
-
-      });
-
-    }
-
-    /* ========= المنطقة ========= */
-
-    if (content.includes("[AREA:")) {
-
-      const area = content.match(/\[AREA:(.*?)\]/)[1];
-
-      session.area = area;
-
-      session.delivery = await getDeliveryPrice(area);
-
-    }
-
-    /* ========= الحساب ========= */
-
-    const itemsTotal = session.items.reduce(
-      (sum, i) => sum + (i.price * i.qty),
-      0
-    );
-
-    session.total = itemsTotal + session.delivery;
-
-    /* ========= تأكيد الطلب ========= */
-
-    if (content.includes("[CONFIRM]") && session.items.length > 0) {
-
-      const summary = `
-🚨 طلب جديد
-
-العميل:
-${chatId}
-
-الطلب:
-${JSON.stringify(session.items)}
-
-المنطقة:
-${session.area}
-
-المجموع:
-${session.total} دينار
-`;
-
-      await sendWA(SETTINGS.GROUP_ID, summary);
-
-      await sendWA(chatId, "تم تأكيد طلبك يا غالي ✅");
-
+    // معالجة التأكيد النهائي
+    if (aiResponse.includes("[CONFIRM]")) {
+      const orderSummary = aiResponse.replace(/\[.*?\]/g, "").trim();
+      
+      // إرسال للمطبخ (الجروب)
+      await sendWA(SETTINGS.GROUP_ID, `📌 طلب جديد من ${chatId}:\n${orderSummary}`);
+      // رد على العميل
+      await sendWA(chatId, "تم اعتماد الطلب يا غالي، ثواني ويكون عندك! 🚗");
+      
+      // تصفير الجلسة بعد الطلب
       delete SESSIONS[chatId];
-
       return;
-
     }
 
-    /* ========= الرد للعميل ========= */
+    // تنظيف الرد من الأكواد البرمجية قبل إرساله للعميل
+    const cleanReply = aiResponse.replace(/\[.*?\]/g, "").trim();
+    await sendWA(chatId, cleanReply);
 
-    let reply = content.replace(/\[.*?\]/g, "").trim();
-
-    if (session.total > 0) {
-
-      reply += `\n\nالمجموع الحالي: ${session.total} دينار`;
-
-    }
-
-    await sendWA(chatId, reply);
-
-  } catch {
-
-    console.log("AI Error");
-
+  } catch (error) {
+    console.error("AI Error:", error.response?.data || error.message);
   }
-
 });
 
-/* ========= تشغيل السيرفر ========= */
-
-app.listen(3000, () => {
-
-  console.log("🚀 BOT RUNNING");
-
-});
+app.listen(3000, () => console.log("🚀 Saber Jo Bot is Online"));
