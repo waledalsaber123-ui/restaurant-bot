@@ -17,20 +17,34 @@ const SETTINGS = {
 
 const SESSIONS = {};
 
-const DATA = {
-  INFO: `📍 عمان - طلوع هافانا. 🗺️ https://maps.google.com/?q=32.0155,35.8675`,
-  MENU: `[المنيو]من البرونت.`,
-  DELIVERY: `[التوصيل]من البرونت و التزم  في الاسعار .`
-};
-
 const SYSTEM_PROMPT = `
-أنت "صابر". ردودك (قصيرة جداً، باللهجة الأردنية، ومباشرة).
-قوانين صارمة:
-- لا ترحب بالعميل مجدداً إذا كان يطلب (ادخل في الموضوع فوراً).
-- إذا استلمت صوتاً، اعتبره نصاً وأجب عليه بسرعة.
-- طبربور دائماً 3 دنانير توصيل.
-- اطلب البيانات (اسم، رقم، عنوان) فقط بعد حساب السعر النهائي.
-- ممنوع كتابة أكثر من جملتين في الرد الواحد.
+أنت "صابر"، موظف استقبال في مطعم شاورما بعمان. ردودك قصيرة جداً (سطرين بالكتير) وباللهجة الأردنية.
+
+📍 **معلومات المطعم والموقع**:
+عمان - شارع الجامعة - طلوع هافانا. الموقع: https://maps.google.com/?q=32.0155,35.8675
+
+📋 **المنيو الرسمية (ممنوع تغيير الأسعار)**:
+- صدور عائلية: أبو 6 (6 سندويش + بطاطا) بـ 6 دنانير | أبو 9 (8 سندويش + بطاطا) بـ 9 دنانير.
+- سناكات: اقتصادية (4 سندويش + بطاطا + بيبسي) بـ 7 دنانير | عائلية بـ 10 دنانير | عملاقة بـ 14 دينار.
+- فردي: ساندويش (1.50) | وجبة مع بطاطا (2.00).
+- زنجر ديناميت (45 سم): ساندويش (1.00) | وجبة (2.00).
+- صاروخ شاورما: 1.50 | خابور كباب: 2.00 | قنبلة رمضان: 2.25.
+- وجبات شاورما: عادي 2 | سوبر 2.75 | دبل 3.25 | تربل 4.
+
+🚚 **أسعار التوصيل الثابتة (ممنوع التأليف)**:
+- استلام من المطعم: 0 دينار.
+- 1.50: صويلح، الدوريات، مجدي مول.
+- 2.00: تلاع العلي، شارع الجامعة، الجبيهة، الرشيد، المدينة الرياضية، جبل الحسين.
+- 2.50: خلدا، دابوق، أبو نصير، الجاردنز، الشميساني.
+- 3.00: طبربور (دائماً 3د)، عبدون، الصويفية، شفا بدران، وسط البلد.
+- 4.00: سحاب، ماركا، وادي السير، القويسمة، أبو علندا.
+
+⚠️ **قوانين الذاكرة والتعامل**:
+1. تذكر شو طلب العميل بالأول ولا تسأله "شو بدك تطلب" إذا حكى الصنف.
+2. إذا العميل حكى "استلام"، احذف رسوم التوصيل فوراً.
+3. افهم الفويس وحوله لطلب نصي.
+4. اطلب الاسم والرقم والعنوان بآخر المحادثة بعد ما تعطي السعر النهائي.
+5. لا ترسل [KITCHEN_GO] إلا لما العميل يحكي "تم" أو "أكد".
 `;
 
 app.post("/webhook", async (req, res) => {
@@ -44,17 +58,17 @@ app.post("/webhook", async (req, res) => {
 
   let incomingText = "";
 
-  // 1. معالجة الرسالة الصوتية فوراً وتحويلها لنص
+  // فهم الفويس
   if (body.typeWebhook === "incomingFileMessageReceived" && body.messageData?.fileMessageData?.mimeType?.includes("audio")) {
     incomingText = await transcribeVoice(body.messageData.fileMessageData.downloadUrl);
   } 
-  // 2. معالجة النص
+  // معالجة النصوص
   else if (body.typeWebhook === "incomingMessageReceived") {
     incomingText = body.messageData?.textMessageData?.textMessage || body.messageData?.extendedTextMessageData?.text || "";
   }
-  // 3. معالجة الصور
+  // تحليل الصور
   else if (body.typeWebhook === "incomingFileMessageReceived" && body.messageData?.fileMessageData?.mimeType?.includes("image")) {
-    incomingText = "[صورة من العميل - حللها بناءً على المنيو]";
+    incomingText = "[العميل بعت صورة، حللها كأنها طلب]";
   }
 
   if (!incomingText) return;
@@ -63,8 +77,8 @@ app.post("/webhook", async (req, res) => {
     const ai = await axios.post("https://api.openai.com/v1/chat/completions", {
       model: "gpt-4o",
       messages: [
-        { role: "system", content: SYSTEM_PROMPT + "\n" + DATA.INFO + "\n" + DATA.MENU + "\n" + DATA.DELIVERY },
-        ...session.history.slice(-20),
+        { role: "system", content: SYSTEM_PROMPT },
+        ...session.history.slice(-40), // ذاكرة قوية لـ 40 رسالة
         { role: "user", content: incomingText }
       ],
       temperature: 0
@@ -73,8 +87,8 @@ app.post("/webhook", async (req, res) => {
     let reply = ai.data.choices[0].message.content;
 
     if (reply.includes("[KITCHEN_GO]")) {
-      await sendWA(SETTINGS.KITCHEN_GROUP, reply.replace("[KITCHEN_GO]", "✅ *طلب جديد*"));
-      await sendWA(chatId, "أبشر، طلبك صار بالمطبخ. نورتنا! 🙏");
+      await sendWA(SETTINGS.KITCHEN_GROUP, reply.replace("[KITCHEN_GO]", "🔔 *طلب جديد مؤكد*"));
+      await sendWA(chatId, "تم يا غالي، الطلب صار بالمطبخ ورح يوصلك بأسرع وقت. نورتنا! 🙏");
       delete SESSIONS[chatId];
       return;
     }
@@ -96,12 +110,12 @@ async function transcribeVoice(url) {
       headers: { ...formData.getHeaders(), Authorization: `Bearer ${SETTINGS.OPENAI_KEY}` }
     });
     fs.unlinkSync(filePath);
-    return res.data.text; // إرجاع النص المستخرج من الصوت
-  } catch (err) { return "العميل أرسل صوتاً لم أفهمه"; }
+    return res.data.text;
+  } catch (err) { return "صوت من العميل"; }
 }
 
 async function sendWA(chatId, message) {
   try { await axios.post(`${SETTINGS.API_URL}/sendMessage/${SETTINGS.GREEN_TOKEN}`, { chatId, message }); } catch (err) {}
 }
 
-app.listen(3000, () => console.log("Saber Bot - Fast & Voice Optimized"));
+app.listen(3000, () => console.log("Saber Bot - Final Version Online"));
