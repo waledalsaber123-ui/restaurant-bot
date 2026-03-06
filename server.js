@@ -135,7 +135,7 @@ app.post("/webhook", async (req, res) => {
         model: "gpt-4o-mini",
         temperature: 0,
         top_p: 0,
-        max_tokens: 500,
+        max_tokens: 120,
         messages: [
           { role: "system", content: SYSTEM },
           ...session.history.slice(-6),
