@@ -7,8 +7,6 @@ app.use(express.json());
 const SETTINGS = {
   OPENAI_KEY: process.env.OPENAI_KEY,
   GREEN_TOKEN: process.env.GREEN_TOKEN,
-  SYSTEM_PROMPT:  process.env.SYSTEM_PROMPT,
-  DELIVERY_SHEET: process.env.DELIVERY_SHEET,
   ID_INSTANCE: process.env.ID_INSTANCE,
   KITCHEN_GROUP: "120363407952234395@g.us", // جروب المطبخ المعتمد
   API_URL: `https://7103.api.greenapi.com/waInstance${process.env.ID_INSTANCE}`
@@ -37,8 +35,8 @@ app.post("/webhook", async (req, res) => {
   if (!SESSIONS[chatId]) SESSIONS[chatId] = { history: [] };
   const session = SESSIONS[chatId];
 
-  // سحب كل التعليمات والمنيو واللوكيشن من الـ Key المسمى SYSTEM_PROMPT
-  const dynamicPrompt = process.env.SYSTEM_PROMPT;
+  // الربط الإجباري مع الـ Key الموجود في الـ Environment Variables
+  const dynamicPrompt = process.env.SYSTEM_PROMPT; 
 
   try {
     const aiRes = await axios.post(
@@ -46,27 +44,26 @@ app.post("/webhook", async (req, res) => {
       {
         model: "gpt-4o-mini",
         messages: [
-          { role: "system", content: dynamicPrompt }, 
-          ...session.history.slice(-3), // ذاكرة محدودة لضمان عدم التشتت والالتزام بالتعليمات
+          { role: "system", content: dynamicPrompt }, // الاعتماد الكلي على البرومبت الخارجي
+          ...session.history.slice(-3), // ذاكرة قصيرة لضمان عدم التشتت
           { role: "user", content: text }
         ],
-        temperature: 0 // لضمان عدم الهلوسة والالتزام بالنص الحرفي
+        temperature: 0 // لضمان عدم "تأليف" إجابات خارج النص
       },
       { headers: { Authorization: `Bearer ${SETTINGS.OPENAI_KEY}` } }
     );
 
     let aiReply = aiRes.data.choices[0].message.content;
 
-    // ترحيل الطلب للجروب فوراً عند اكتشاف كود التأكيد اللي حطيته بالبرومبت
+    // ترحيل الطلب للجروب فوراً عند وجود كود التأكيد [KITCHEN_GO]
     if (aiReply.includes("[KITCHEN_GO]")) {
       const finalOrder = aiReply.replace("[KITCHEN_GO]", "").trim();
       await sendWA(SETTINGS.KITCHEN_GROUP, finalOrder); 
-      await sendWA(chatId, "أبشر يا غالي، طلبك صار بالمطبخ وجاري التحضير! 🏎️");
-      delete SESSIONS[chatId];
+      await sendWA(chatId, "أبشر يا غالي، تم تأكيد طلبك وإرساله للمطبخ! ✅");
+      delete SESSIONS[chatId]; // مسح الجلسة بعد نجاح الطلب
       return;
     }
 
-    // الرد العادي بناءً على تعليمات البرومبت
     const cleanReply = aiReply.replace(/\[.*?\]/g, "").trim();
     if (cleanReply) {
       await sendWA(chatId, cleanReply);
