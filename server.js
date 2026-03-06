@@ -1,226 +1,151 @@
 import express from "express"
 
 import {CONFIG} from "./config.js"
-import {queue} from "./queue.js"
 
 import {sendMessage} from "./whatsapp.js"
 
-import {getSession} from "./sessions.js"
-import {createOrder,getOrder} from "./orders.js"
+import {runAI} from "./ai.js"
 
-import {parseMessage} from "./ai.js"
+import {createOrder,ORDERS} from "./orders.js"
 
-const app = express()
+import {SESSIONS} from "./sessions.js"
+
+import {loadDelivery,getDeliveryPrice} from "./delivery.js"
+
+const app=express()
 
 app.use(express.json())
 
-/* ========================= */
+await loadDelivery()
 
-function buildOrderMessage(order){
+function buildSummary(order){
 
- const items = order.items
-  .map(i => `${i.name} × ${i.qty}`)
-  .join("\n")
+const items=order.items
+.map(i=>`${i.name} × ${i.qty}`)
+.join("\n")
 
- return `
+return `
 
-🧾 طلب جديد
+🧾 ملخص الطلب
 
-👤 العميل:
-${order.phone}
-
-🍔 الطلب:
 ${items}
 
-📍 العنوان:
-${order.address || "غير محدد"}
+📍 العنوان
+${order.address}
 
-⏱ مدة التوصيل: ${CONFIG.DELIVERY_TIME} دقيقة
+🚚 التوصيل
+${order.delivery}
+
+💰 المجموع
+${order.total}
+
+اكتب "تأكيد الطلب" لتثبيت الطلب
+
+`
+
+}
+
+function buildGroupMessage(order){
+
+const items=order.items
+.map(i=>`${i.name} × ${i.qty}`)
+.join("\n")
+
+return `
+
+🚨 طلب جديد
+
+📞 الهاتف
+${order.phone}
+
+📍 العنوان
+${order.address}
+
+🍔 الطلب
+${items}
+
+🚚 التوصيل
+${order.delivery}
+
+💰 المجموع
+${order.total}
 
 #${order.id}
 
 `
+
 }
 
-/* ========================= */
+app.post("/webhook",async(req,res)=>{
 
-app.post("/webhook",(req,res)=>{
+const body=req.body
 
- queue.add(()=>handleMessage(req.body))
+const chatId=body.senderData?.chatId
 
- res.sendStatus(200)
+const text=body.messageData?.textMessageData?.textMessage
+
+if(!chatId) return res.sendStatus(200)
+
+if(chatId.includes("@g.us")) return res.sendStatus(200)
+
+if(!SESSIONS[chatId]){
+
+const order=createOrder(chatId)
+
+SESSIONS[chatId]={orderId:order.id}
+
+}
+
+const order=ORDERS[SESSIONS[chatId].orderId]
+
+const ai=await runAI(text)
+
+if(ai.reply){
+
+await sendMessage(chatId,ai.reply)
+
+}
+
+if(ai.intent==="order"){
+
+ai.items.forEach(i=>{
+
+order.items.push(i)
 
 })
 
-/* ========================= */
+}
 
-async function handleMessage(body){
+if(ai.intent==="address"){
 
- const chatId = body.senderData?.chatId
- const text = body.messageData?.textMessageData?.textMessage
+order.address=text
 
- if(!chatId) return
+order.delivery=getDeliveryPrice(text)
 
- /* ignore groups */
+order.total=order.items.length+order.delivery
 
- if(chatId.includes("@g.us")) return
+const summary=buildSummary(order)
 
- const msg = text?.toLowerCase() || ""
-
- /* ========================= */
- /* HELLO MESSAGE */
-
- if(
-  msg.includes("مرحبا") ||
-  msg.includes("هلا") ||
-  msg.includes("السلام")
- ){
-
-  await sendMessage(chatId,`
-
-أهلاً وسهلاً يا غالي 👋
-
-🔥 في عنا عروض قوية اليوم:
-
-1️⃣ ديناميت 45 سم — 1 دينار  
-2️⃣ صاروخ الشاورما — 1.5 دينار  
-3️⃣ قنبلة رمضان — 2.25 دينار  
-4️⃣ خابور كباب — 2 دينار  
-
-شو بتحب نجهزلك؟ 🍔
-
-`)
-
-  return
- }
-
- /* ========================= */
- /* MENU QUESTION */
-
- if(
-  msg.includes("اصناف") ||
-  msg.includes("المنيو") ||
-  msg.includes("شو عندك") ||
-  msg.includes("شو في") ||
-  msg.includes("ايش عندك")
- ){
-
-  await sendMessage(chatId,`
-
-🔥 أهم العروض عندنا:
-
-1️⃣ ديناميت 45 سم — 1 دينار  
-2️⃣ صاروخ الشاورما — 1.5 دينار  
-3️⃣ قنبلة رمضان — 2.25 دينار  
-4️⃣ خابور كباب — 2 دينار  
-
-إذا بدك وجبة عائلية أو شاورما أو برجر خبرني يا غالي 👌
-
-`)
-
-  return
- }
-
- /* ========================= */
-
- const session = getSession(chatId)
-
- if(!session.orderId){
-
-  const order = createOrder(chatId)
-
-  session.orderId = order.id
- }
-
- const order = getOrder(session.orderId)
-
- if(!text){
-
-  await sendMessage(chatId,"اكتب طلبك يا غالي 👌")
-  return
- }
-
- /* ========================= */
- /* AI ORDER PARSER */
-
- const ai = await parseMessage(text)
-
- /* ========================= */
- /* OFFERS */
-
- if(ai.intent === "offers"){
-
-  await sendMessage(chatId,`
-
-🔥 في عنا عروض قوية اليوم:
-
-ديناميت 45 سم — 1 دينار  
-صاروخ الشاورما — 1.5 دينار  
-قنبلة رمضان — 2.25 دينار  
-خابور كباب — 2 دينار  
-
-شو بتحب نجربلك منهم يا غالي؟
-
-`)
-
-  return
- }
-
- /* ========================= */
- /* ADD ORDER */
-
- if(ai.intent === "order"){
-
-  ai.items.forEach(i=>{
-   order.items.push(i)
-  })
-
-  await sendMessage(
-
-   chatId,
-
-`تمام 👌
-
-تم إضافة الطلب.
-
-بدك تضيف شي ثاني
-ولا نثبت الطلب؟`
-
-  )
-
- }
-
- /* ========================= */
- /* CONFIRM ORDER */
-
- if(ai.intent === "confirm"){
-
-  order.status = "confirmed"
-
-  const msg = buildOrderMessage(order)
-
-  await sendMessage(CONFIG.GROUP_ID,msg)
-
-  await sendMessage(
-
-   chatId,
-
-`تم تثبيت الطلب ✅
-
-رح يتم تجهيز الطلب خلال ${CONFIG.DELIVERY_TIME} دقيقة.
-
-يعطيك العافية يا غالي 🙏`
-
-  )
-
- }
+await sendMessage(chatId,summary)
 
 }
 
-/* ========================= */
+if(ai.intent==="confirm"){
+
+const msg=buildGroupMessage(order)
+
+await sendMessage(CONFIG.GROUP_ID,msg)
+
+await sendMessage(chatId,"تم تأكيد الطلب ✅")
+
+}
+
+res.sendStatus(200)
+
+})
 
 app.listen(CONFIG.PORT,()=>{
 
- console.log("BOT RUNNING")
+console.log("BOT RUNNING")
 
 })
