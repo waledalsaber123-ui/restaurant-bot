@@ -1,148 +1,125 @@
-import express from "express"
-import axios from "axios"
+import express from "express";
+import axios from "axios";
+import csv from "csvtojson";
 
-const app = express()
-app.use(express.json())
+const app = express();
+app.use(express.json());
 
-/* ========= الإعدادات (ENV) ========= */
-const { 
-    OPENAI_KEY, 
-    GREEN_TOKEN, 
-    ID_INSTANCE, 
-    DELIVERY_SHEET_URL, 
-    SYSTEM_PROMPT 
-} = process.env;
-
-const GROUP_ID = "120363407952234395@g.us";
-const API_URL = `https://7103.api.greenapi.com/waInstance${ID_INSTANCE}`;
-
-/* ========= الذاكرة المؤقتة ========= */
-const SESSIONS = {};
-const LAST_MESSAGE = {}; // لمنع تكرار معالجة نفس الرسالة
-let DELIVERY = {};
-
-// أسعار الوجبات (يمكنك نقلها للـ ENV أو ملف خارجي)
-const PRICES = {
-    "ديناميت": 2.5,
-    "شاورما": 1.5,
-    "زنجر": 2.0,
-    "برجر": 3.0
+/* ========= الإعدادات المباشرة (تجنباً لخطأ ملف config المفقود) ========= */
+const SETTINGS = {
+    OPENAI_KEY: process.env.OPENAI_KEY,
+    GREEN_TOKEN: process.env.GREEN_TOKEN,
+    ID_INSTANCE: process.env.ID_INSTANCE,
+    GROUP_ID: "120363407952234395@g.us",
+    SHEET_URL: process.env.DELIVERY_SHEET_URL,
+    API_URL: `https://7103.api.greenapi.com/waInstance${process.env.ID_INSTANCE}`
 };
 
-/* ========= تحميل بيانات التوصيل ========= */
-async function loadDelivery() {
-    try {
-        const res = await axios.get(DELIVERY_SHEET_URL);
-        const rows = res.data.split("\n");
-        rows.forEach(r => {
-            const [area, price] = r.split(",");
-            if (area) DELIVERY[area.trim()] = Number(price);
-        });
-        console.log("✅ تم تحميل مناطق التوصيل");
-    } catch (e) {
-        console.log("❌ فشل تحميل شيت التوصيل:", e.message);
-    }
-}
-loadDelivery();
+// ذاكرة الجلسات والرسائل لمنع التكرار
+const SESSIONS = {};
+const LAST_MESSAGE = {}; 
 
-/* ========= وظائف الإرسال ========= */
-async function sendMessage(chatId, text) {
+/* ========= وظيفة جلب سعر التوصيل من الشيت ========= */
+async function getDeliveryPrice(areaName) {
     try {
-        await axios.post(`${API_URL}/sendMessage/${GREEN_TOKEN}`, { chatId, message: text });
-    } catch (e) { console.error("Send Error"); }
-}
-
-/* ========= محرك الذكاء الاصطناعي ========= */
-async function runAI(message) {
-    try {
-        const res = await axios.post("https://api.openai.com/v1/chat/completions", {
-            model: "gpt-4o-mini",
-            temperature: 0.2, // درجة حرارة منخفضة لضمان الدقة
-            messages: [
-                { role: "system", content: SYSTEM_PROMPT },
-                { role: "user", content: message }
-            ]
-        }, {
-            headers: { Authorization: `Bearer ${OPENAI_KEY}`, "Content-Type": "application/json" }
-        });
-        return res.data.choices[0].message.content;
-    } catch (e) {
-        return "أهلاً بك يا غالي 👋 كيف بقدر أساعدك اليوم؟";
+        const res = await axios.get(SETTINGS.SHEET_URL);
+        const data = await csv().fromString(res.data);
+        // البحث عن تطابق اسم المنطقة داخل النص المرسل
+        const zone = data.find(d => areaName.includes(d.area.trim()));
+        return zone ? parseFloat(zone.price) : 0;
+    } catch (e) { 
+        console.log("خطأ في قراءة الشيت");
+        return 0; 
     }
 }
 
-/* ========= بناء الرسائل ========= */
-function buildSummary(order) {
-    const itemsList = order.items.map(i => `• ${i.name} (السعر: ${i.p}د)`).join("\n");
-    return `🧾 *ملخص الطلب*\n\n${itemsList}\n\n📍 *العنوان:* ${order.address}\n🚚 *أجور التوصيل:* ${order.delivery}د\n💰 *المجموع الكلي:* ${order.total}د\n\nاكتب *تأكيد* لتثبيت الطلب ✅`;
+/* ========= وظيفة إرسال الرسائل لواتساب ========= */
+async function sendWA(chatId, message) {
+    try {
+        await axios.post(`${SETTINGS.API_URL}/sendMessage/${SETTINGS.GREEN_TOKEN}`, {
+            chatId,
+            message
+        });
+    } catch (e) { console.error("خطأ في إرسال واتساب"); }
 }
 
-function buildGroupMessage(order) {
-    const itemsList = order.items.map(i => `• ${i.name}`).join("\n");
-    return `🚨 *طلب جديد*\n\n📞 *الهاتف:* ${order.phone}\n📍 *العنوان:* ${order.address}\n🍔 *الأصناف:*\n${itemsList}\n🚚 *التوصيل:* ${order.delivery}د\n💰 *الإجمالي:* ${order.total}د\n\n#${order.id}`;
-}
-
-/* ========= الويب هوك الرئيسي ========= */
+/* ========= الواتساب ويب هوك (المعالج الرئيسي) ========= */
 app.post("/webhook", async (req, res) => {
-    // 1. الحل الجذري للتكرار: الرد فوراً بـ 200
+    // 1. الحل الجذري للتكرار: الرد فوراً بـ 200 لإعلام السيرفر بالاستلام
     res.sendStatus(200);
 
     const body = req.body;
     if (body.typeWebhook !== "incomingMessageReceived") return;
 
     const chatId = body.senderData?.chatId;
-    // دعم الرسائل النصية من الموبايل أو الويب (Linked Devices)
+    // دعم كافة أنواع النصوص (بما فيها الأجهزة المرتبطة) لحل مشكلة "في انتظار الرسالة"
     const text = (body.messageData?.textMessageData?.textMessage || 
                   body.messageData?.extendedTextMessageData?.text || "").trim();
 
     if (!chatId || !text || chatId.includes("@g.us")) return;
 
-    // 2. منع معالجة نفس النص مرتين خلال ثوانٍ
+    // 2. منع معالجة نفس الرسالة مرتين (Spam Protection)
     if (LAST_MESSAGE[chatId] === text) return;
     LAST_MESSAGE[chatId] = text;
 
-    // 3. إدارة الجلسة
+    // 3. إدارة جلسة الطلب
     if (!SESSIONS[chatId]) {
-        SESSIONS[chatId] = { id: "ORD" + Date.now(), phone: chatId, items: [], address: "", delivery: 0, total: 0 };
+        SESSIONS[chatId] = { items: [], area: "", delivery: 0, total: 0 };
     }
-    const order = SESSIONS[chatId];
+    const session = SESSIONS[chatId];
 
-    // 4. منطق التأكيد
-    if (text.includes("تأكيد")) {
-        if (order.items.length === 0) return await sendMessage(chatId, "سلتك فارغة يا غالي، شو بتحب تطلب؟");
-        await sendMessage(GROUP_ID, buildGroupMessage(order));
-        await sendMessage(chatId, "تم تأكيد طلبك بنجاح ✅ وسيتم التواصل معك قريباً.");
-        delete SESSIONS[chatId];
-        return;
-    }
+    // 4. برومبت النظام للذكاء الاصطناعي (المنيو والقواعد)
+    const systemPrompt = `
+    أنت بوت مطعم ذكي. المنيو: (كباب: 5د، شاورما: 3د، زنجر: 4د).
+    مهمتك:
+    - إذا طلب العميل وجبة، رد بـ: [ADD:اسم_الوجبة:الكمية].
+    - إذا ذكر منطقة سكنية، رد بـ: [AREA:اسم_المنطقة].
+    - إذا أراد التأكيد النهائي، رد بـ: [CONFIRM].
+    - السلة الحالية للعميل: ${JSON.stringify(session.items)}.
+    `;
 
-    // 5. اكتشاف منطقة التوصيل وحساب المجموع
-    const foundArea = Object.keys(DELIVERY).find(area => text.includes(area));
-    if (foundArea) {
-        order.address = text;
-        order.delivery = DELIVERY[foundArea];
-        const itemsTotal = order.items.reduce((sum, item) => sum + item.p, 0);
-        order.total = itemsTotal + order.delivery;
-        return await sendMessage(chatId, buildSummary(order));
-    }
+    try {
+        const aiRes = await axios.post("https://api.openai.com/v1/chat/completions", {
+            model: "gpt-4o-mini",
+            messages: [
+                { role: "system", content: systemPrompt },
+                { role: "user", content: text }
+            ],
+            temperature: 0
+        }, { headers: { Authorization: `Bearer ${SETTINGS.OPENAI_KEY}` } });
 
-    // 6. التقاط الأصناف يدوياً (للسرعة) وحساب السعر
-    let added = false;
-    for (const [name, price] of Object.entries(PRICES)) {
-        if (text.includes(name)) {
-            order.items.push({ name: name, p: price });
-            added = true;
+        const content = aiRes.data.choices[0].message.content;
+
+        // 5. معالجة أوامر الـ AI المستخرجة
+        if (content.includes("[AREA:")) {
+            const area = content.match(/\[AREA:(.*?)\]/)[1];
+            session.area = area;
+            session.delivery = await getDeliveryPrice(area);
         }
-    }
 
-    if (added) {
-        const currentTotal = order.items.reduce((sum, item) => sum + item.p, 0);
-        return await sendMessage(chatId, `تم إضافة الطلب 👍 المجموع الحالي للوجبات: ${currentTotal} دينار.\nوين التوصيل يا غالي؟`);
-    }
+        if (content.includes("[ADD:")) {
+            const match = content.match(/\[ADD:(.*?):(\d+)\]/);
+            session.items.push({ name: match[1], qty: match[2] });
+        }
 
-    // 7. رد الذكاء الاصطناعي للدردشة العامة
-    const aiReply = await runAI(text);
-    await sendMessage(chatId, aiReply);
+        if (content.includes("[CONFIRM]")) {
+            const summary = `🚨 طلب جديد مؤكد:\nالعميل: ${chatId}\nالمنطقة: ${session.area}\nالطلب: ${JSON.stringify(session.items)}\nالتوصيل: ${session.delivery}د`;
+            await sendWA(SETTINGS.GROUP_ID, summary);
+            await sendWA(chatId, "تم تأكيد طلبك بنجاح ✅");
+            delete SESSIONS[chatId]; // تصفير الجلسة
+            return;
+        }
+
+        // 6. إرسال الرد النصي "النظيف" للعميل
+        const cleanReply = content.replace(/\[.*?\]/g, "").trim();
+        await sendWA(chatId, cleanReply);
+
+    } catch (e) {
+        console.error("AI Runtime Error");
+        await sendWA(chatId, "أهلاً بك! كيف بقدر أساعدك بالطلب؟");
+    }
 });
 
-app.listen(3000, () => console.log("🚀 BOT IS RUNNING ON PORT 3000"));
+app.get("/", (req, res) => res.send("Bot is Online 🚀"));
+
+app.listen(3000, () => console.log("✅ السيرفر يعمل على منفذ 3000"));
