@@ -4,15 +4,23 @@ import axios from "axios";
 const app = express();
 app.use(express.json());
 
+/* ================= SETTINGS ================= */
+
 const SETTINGS = {
   OPENAI_KEY: process.env.OPENAI_KEY,
   GREEN_TOKEN: process.env.GREEN_TOKEN,
   ID_INSTANCE: process.env.ID_INSTANCE,
+  SYSTEM_PROMPT: process.env.SYSTEM_PROMPT,
   KITCHEN_GROUP: "120363407952234395@g.us",
   API_URL: `https://7103.api.greenapi.com/waInstance${process.env.ID_INSTANCE}`
 };
 
+/* ================= SESSION MEMORY ================= */
+
 const SESSIONS = {};
+const SESSION_TIMEOUT = 30 * 60 * 1000; // 30 minutes
+
+/* ================= SEND WHATSAPP ================= */
 
 async function sendWA(chatId, message) {
   try {
@@ -20,65 +28,49 @@ async function sendWA(chatId, message) {
       `${SETTINGS.API_URL}/sendMessage/${SETTINGS.GREEN_TOKEN}`,
       { chatId, message }
     );
-  } catch (e) {
-    console.log("WhatsApp Send Error", e.message);
+  } catch (err) {
+    console.log("WA ERROR:", err.message);
   }
 }
 
-app.post("/webhook", async (req, res) => {
-  res.sendStatus(200);
+/* ================= CLEAN TEXT ================= */
 
-  const body = req.body;
+function cleanText(text) {
+  return text
+    .replace(/\[.*?\]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
 
-  if (body.typeWebhook !== "incomingMessageReceived") return;
+/* ================= SYSTEM PROMPT ================= */
 
-  const chatId = body.senderData?.chatId;
+const SYSTEM = `
+${SETTINGS.SYSTEM_PROMPT}
 
-  if (!chatId || chatId.endsWith("@g.us")) return;
+STRICT RULES:
 
-  const text =
-    body.messageData?.textMessageData?.textMessage ||
-    body.messageData?.extendedTextMessageData?.text ||
-    "";
+- Never change menu prices
+- Never invent menu items
+- Only use items from the menu
+- Delivery fee must match delivery list exactly
+- Speak Arabic
 
-  if (!text.trim()) return;
+ORDER FLOW:
 
-  if (!SESSIONS[chatId]) {
-    SESSIONS[chatId] = {
-      history: [],
-      order: null,
-      address: null,
-      phone: null
-    };
-  }
+1 Receive order
+2 Verify items exist in menu
+3 Calculate price
+4 Ask delivery area
+5 Calculate delivery fee
+6 Ask phone number
+7 Show summary
+8 Ask confirmation
 
-  const session = SESSIONS[chatId];
-
-  const dynamicPrompt = process.env.SYSTEM_PROMPT;
-
-  const SYSTEM = `
-${dynamicPrompt}
-
-قواعد البوت:
-
-انت موظف طلبات لمطعم.
-
-المهام:
-1 استقبل طلب العميل
-2 تأكد من الأصناف من المنيو فقط
-3 احسب السعر بدقة
-4 اطلب العنوان
-5 اطلب رقم الهاتف
-6 اعرض ملخص الطلب
-7 اطلب تأكيد
-
-عند تأكيد الطلب اكتب في بداية الرسالة:
+ONLY when customer confirms order start message with:
 
 [KITCHEN_GO]
 
-ولا تستخدمه قبل التأكيد.
-
-صيغة الطلب للمطبخ:
+Kitchen format:
 
 طلب جديد
 
@@ -88,9 +80,6 @@ ${dynamicPrompt}
 المجموع:
 ...
 
-الاسم:
-...
-
 الهاتف:
 ...
 
@@ -98,12 +87,55 @@ ${dynamicPrompt}
 ...
 `;
 
+/* ================= WEBHOOK ================= */
+
+app.post("/webhook", async (req, res) => {
+
+  res.sendStatus(200);
+
+  const body = req.body;
+
+  if (body.typeWebhook !== "incomingMessageReceived") return;
+
+  const chatId = body.senderData?.chatId;
+  if (!chatId || chatId.endsWith("@g.us")) return;
+
+  const text =
+    body.messageData?.textMessageData?.textMessage ||
+    body.messageData?.extendedTextMessageData?.text ||
+    "";
+
+  if (!text.trim()) return;
+
+  /* ===== SESSION ===== */
+
+  if (!SESSIONS[chatId]) {
+    SESSIONS[chatId] = {
+      history: [],
+      lastActive: Date.now()
+    };
+  }
+
+  const session = SESSIONS[chatId];
+  session.lastActive = Date.now();
+
+  /* ===== DELETE OLD SESSIONS ===== */
+
+  Object.keys(SESSIONS).forEach(id => {
+    if (Date.now() - SESSIONS[id].lastActive > SESSION_TIMEOUT) {
+      delete SESSIONS[id];
+    }
+  });
+
   try {
-    const aiRes = await axios.post(
+
+    const ai = await axios.post(
       "https://api.openai.com/v1/chat/completions",
       {
         model: "gpt-4o-mini",
         temperature: 0,
+        top_p: 0,
+        max_tokens: 500,
         messages: [
           { role: "system", content: SYSTEM },
           ...session.history.slice(-6),
@@ -113,27 +145,29 @@ ${dynamicPrompt}
       {
         headers: {
           Authorization: `Bearer ${SETTINGS.OPENAI_KEY}`
-        }
+        },
+        timeout: 15000
       }
     );
 
-    let aiReply = aiRes.data.choices[0].message.content;
+    let reply = ai.data.choices[0].message.content;
 
-    // إذا تم تأكيد الطلب
-    if (aiReply.includes("[KITCHEN_GO]")) {
+    /* ===== SEND ORDER TO KITCHEN ===== */
 
-      const order = aiReply.replace("[KITCHEN_GO]", "").trim();
+    if (reply.includes("[KITCHEN_GO]")) {
+
+      const order = cleanText(reply);
 
       await sendWA(SETTINGS.KITCHEN_GROUP, order);
 
-      await sendWA(chatId, "تم تأكيد طلبك وارساله للمطبخ 👨‍🍳✅");
+      await sendWA(chatId, "تم إرسال طلبك للمطبخ 👨‍🍳✅");
 
       delete SESSIONS[chatId];
 
       return;
     }
 
-    const cleanReply = aiReply.replace(/\[.*?\]/g, "").trim();
+    const cleanReply = cleanText(reply);
 
     if (cleanReply) {
 
@@ -143,13 +177,23 @@ ${dynamicPrompt}
         { role: "user", content: text },
         { role: "assistant", content: cleanReply }
       );
+
+      if (session.history.length > 12) {
+        session.history = session.history.slice(-6);
+      }
     }
 
   } catch (err) {
-    console.log("AI Error", err.response?.data || err.message);
+
+    console.log("AI ERROR:", err.response?.data || err.message);
+
+    await sendWA(chatId, "صار خطأ بسيط، حاول مرة ثانية 🙏");
   }
+
 });
 
+/* ================= SERVER ================= */
+
 app.listen(3000, () => {
-  console.log("Restaurant Bot Running");
+  console.log("🚀 Saber Jo Snack Bot Running");
 });
