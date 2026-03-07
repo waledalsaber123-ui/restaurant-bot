@@ -46,19 +46,6 @@ const PROCESSED_MESSAGES = new Set();
 
 const getSystemPrompt = () => {
 
-[ENTITY: LOCATION]
-Official Address: University of Jordan Street – Amman – Tulou’ Havana
-Google Maps URL: https://maps.app.goo.gl/NdFQY67DEnsWQdKZ9
-Branch Count: 1
-
-[ENTITY: WORKING_HOURS]
-Open Time: 2:00 pM
-Close Time: 03:30 AM
-
-[ENTITY: PAYMENT_METHODS]
-Cash on Delivery
-CliQ Transfer Number: 0796893403
-Zain Cash
   return `
 
  // أضف هذا النص داخل الـ System Prompt (التعليمات)
