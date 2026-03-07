@@ -74,7 +74,7 @@ const getSystemPrompt = (session) => {
   - الرقم: ${session.userPhone || "مطلوب"}
   - المنطقة: ${session.userZone || "مطلوب"}
   - سعر توصيل المنطقة: ${session.deliveryFee || 0} د.أ
-
+  - الأصناف المطلوبة: ${session.pendingOrder?.items?.join(' + ') || "مطلوب"}
   بعد تلخيص الطلب بهذا الشكل، اسأل الزبون: "هل البيانات صحيحة؟ أكتب تم للتأكيد".`;
 };
 
