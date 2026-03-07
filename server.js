@@ -100,9 +100,16 @@ app.post("/webhook", async (req, res) => {
 
     let userMessage = body.messageData?.textMessageData?.textMessage || body.messageData?.extendedTextMessageData?.text;
     if (!userMessage) return;
-    if (/^(تم|تمام|ايوا|ok)$/i.test(userMessage) && session.lastKitchenMsg) {
-        // 1. إرسال الطلب للمطبخ
-        await sendWA(SETTINGS.KITCHEN_GROUP, session.lastKitchenMsg);
+  // منطق التأكيد والإرسال للجروب
+    if (/^(تم|تمام|ايوا|ok|أكد|تاكيد)$/i.test(userMessage.trim()) && session.lastKitchenMsg) {
+        await sendWA(SETTINGS.KITCHEN_GROUP, session.lastKitchenMsg); // الإرسال لجروب المطبخ
+        await sendWA(chatId, "أبشر يا غالي، طلبك اعتمدناه وصار بالمطبخ! نورت مطعم صابر 🙏");
+        session.lastKitchenMsg = null; // تصفير الطلب عشان ما يتكرر
+        return; // إنهاء العملية هون عشان نحمي الـ 40 رسالة
+    } // <--- هاد القوس اللي كان ناقص وموقف الكود عندك
+
+    try {
+        // ... هون بكمل كود الـ axios.post الطبيعي تبعك
         
         // 2. رد على الزبون
         await sendWA(chatId, "أبشر يا غالي، طلبك اعتمدناه وصار بالمطبخ! نورت مطعم صابر 🙏");
