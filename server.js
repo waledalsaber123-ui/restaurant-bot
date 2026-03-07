@@ -100,22 +100,16 @@ app.post("/webhook", async (req, res) => {
 
     let userMessage = body.messageData?.textMessageData?.textMessage || body.messageData?.extendedTextMessageData?.text;
     if (!userMessage) return;
-  // منطق التأكيد والإرسال للجروب
-    if (/^(تم|تمام|ايوا|ok|أكد|تاكيد)$/i.test(userMessage.trim()) && session.lastKitchenMsg) {
-        await sendWA(SETTINGS.KITCHEN_GROUP, session.lastKitchenMsg); // الإرسال لجروب المطبخ
-        await sendWA(chatId, "أبشر يا غالي، طلبك اعتمدناه وصار بالمطبخ! نورت مطعم صابر 🙏");
-        session.lastKitchenMsg = null; // تصفير الطلب عشان ما يتكرر
-        return; // إنهاء العملية هون عشان نحمي الـ 40 رسالة
-        
-        // 2. رد على الزبون
-        await sendWA(chatId, "أبشر يا غالي، طلبك اعتمدناه وصار بالمطبخ! نورت مطعم صابر 🙏");
+// --- الجزء المصلح: منطق التأكيد والإرسال للجروب ---
+  if (/^(تم|تمام|ايوا|ok|أكد|تاكيد)$/i.test(userMessage.trim()) && session.lastKitchenMsg) {
+      await sendWA(SETTINGS.KITCHEN_GROUP, session.lastKitchenMsg); // إرسال لجروب المطبخ
+      await sendWA(chatId, "أبشر يا غالي، طلبك اعتمدناه وصار بالمطبخ! نورت مطعم صابر 🙏");
+      session.lastKitchenMsg = null; 
+      return; 
+  } 
 
-        // 3. السر: تصفير أمر الإرسال فقط وبقاء الذاكرة (الـ 40 رسالة)
-        session.lastKitchenMsg = null; 
-        
-        // 4. إنهاء الدالة هون عشان ما نرجع نبعث كلمة "تم" للذكاء الاصطناعي ونخسر الذاكرة
-        return;
-    try {
+  try {
+      // كود الـ axios بكمل هون طبيعي...
         const aiResponse = await axios.post("https://api.openai.com/v1/chat/completions", {
             model: "gpt-4o", 
             messages: [
