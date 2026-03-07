@@ -19,7 +19,8 @@ const PROCESSED_MESSAGES = new Set();
 /* ================= نظام البرومبت الشامل (المنيو + المناطق + القواعد) ================= */
 const getSystemPrompt = () => {
   return `
-أنت "صابر"، المسؤول عن الحجوزات في مطعم (صابر جو سناك). لهجتك أردنية نشمية، خدوم وذكي جداً.
+أنت "صابر"، المسؤول عن الحجوزات في مطعم (صابر جو سناك). لهجتك أردنية نشمية، خدوم وذكي جداً
+أنت خبير باللهجة العامية الأردنية. افهم المصطلحات مثل (بدي، رتبني، زبطني، هسا، قديش، وينكم، ليرتين، الرصيد، كليك). إذا الزبون كتب بلهجة شارع أو مختصرة، حللها بذكاء واستخرج منها الطلب والمنطقة.".
 // استبدل قسم الموقع بهذا النص داخل البرومبت
 📍 **معلومات الموقع والتواصل**:
 - العنوان: عمان - شارع الجامعة الأردنية - طلوع هافانا.
@@ -159,31 +160,35 @@ app.post("/webhook", async (req, res) => {
     const phoneRegex = /(07[789]\d{7})/;
     const hasPhone = phoneRegex.test(userMessage) || phoneRegex.test(reply);
     const hasName = (reply.includes("الاسم:") && !reply.includes("[اسم الزبون]")) || (userMessage.length > 3 && !userMessage.includes("عروض"));
-
 if (reply.includes("[KITCHEN_GO]")) {
-      // كلمات التأكيد باللهجة الأردنية
-      const confirmationWords = ["اعتمد", "نعم", "اوكي", "أكيد", "اه", "يلا", "تم", "ماشي", "توكل"];
-      const isConfirmed = confirmationWords.some(word => userMessage.toLowerCase().includes(word));
+      // رادار العامية الأردنية للتأكيد
+      const userSaying = userMessage.toLowerCase();
+      const confirmationWords = [
+        "اعتمد", "نعم", "اوكي", "أكيد", "اه", "يلا", "تم", "ماشي", "توكل", 
+        "قبعت", "ثبت", "هات", "وديه", "انجز", "ابشر", "ماشي يا غالي", "اوك"
+      ];
+      
+      const isConfirmed = confirmationWords.some(word => userSaying.includes(word));
 
-      // 1. إذا نقص التلفون
+      // 1. فحص ذكي للهاتف (لو كتبه بالعربي أو الإنجليزي)
       if (!hasPhone) {
-        reply = "على راسي يا نشمي، بس ابعتلي (الاسم ورقم التلفون) عشان أثبت الطلب للمطبخ فوراً.";
+        reply = "على راسي يا نشمي، بس ابعتلي (الاسم ورقم التلفون) عشان أثبت الطلب وأرميه عالمطبخ فوراً.";
       } 
-      // 2. إذا البيانات كاملة بس لسه ما أكد "اعتمد"
+      // 2. إذا البيانات كاملة وبنستنى كلمة "يلا"
       else if (!isConfirmed && !session.waitingConfirmation) {
         session.waitingConfirmation = true;
-        reply = "أبشر، الفاتورة والبيانات جاهزة. أعتمد وأبعت الطلب للمطبخ يا غالي؟";
+        reply = "تمام يا غالي، الفاتورة جاهزة والبيانات كاملة. أعتمد وأبعت الطلب للمطبخ؟";
       } 
-      // 3. إذا البيانات كاملة والزبون حكى "اعتمد" أو "تم"
-      else if (isConfirmed || session.waitingConfirmation) {
+      // 3. التنفيذ والإرسال للمطبخ
+      else if (isConfirmed && session.waitingConfirmation) {
         const orderParts = reply.split("[KITCHEN_GO]");
-        const orderData = orderParts[orderParts.length - 1].trim(); // نأخذ النص اللي بعد الكلمة المفتاحية
+        const orderData = orderParts[orderParts.length - 1].trim(); 
         
-        await sendWA(SETTINGS.KITCHEN_GROUP, orderData); // الإرسال لجروب المطبخ
+        await sendWA(SETTINGS.KITCHEN_GROUP, orderData); 
         await sendWA(chatId, "أبشر، طلبك اعتمدناه وصار بالمطبخ! نورت مطعم صابر 🙏");
         
         session.waitingConfirmation = false;
-        session.history = []; // تصفير الجلسة بعد الطلب الناجح
+        session.history = []; 
         return;
       }
     }
