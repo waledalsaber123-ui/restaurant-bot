@@ -62,7 +62,6 @@ app.post("/webhook", async (req, res) => {
   const session = SESSIONS[chatId];
 
   let userMessage = body.messageData?.textMessageData?.textMessage || body.messageData?.extendedTextMessageData?.text;
-  if (!userMessage) return;
 
   try {
     const aiResponse = await axios.post("https://api.openai.com/v1/chat/completions", {
@@ -71,7 +70,6 @@ app.post("/webhook", async (req, res) => {
         { role: "system", content: getSystemPrompt() },
         ...session.history.slice(-15),
         { role: "user", content: userMessage }
-      ],
       temperature: 0
     }, { headers: { Authorization: `Bearer ${SETTINGS.OPENAI_KEY}` } });
 
