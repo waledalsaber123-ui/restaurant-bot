@@ -333,52 +333,52 @@ if (!SESSIONS[chatId]) {
 }, { headers: { Authorization: `Bearer ${SETTINGS.OPENAI_KEY}` } });
 
 
-
 let reply = aiResponse.data.choices[0].message.content;
 
-    if (reply.includes("[KITCHEN_GO]")) {
-        // 1. الفحص البرمجي الصارم للبيانات
-        const hasPhone = /(07[789]\d{7})/.test(reply) || reply.includes("07");
-        const hasName = reply.includes("الاسم:") && !reply.includes("[اسم الزبون]");
+if (reply.includes("[KITCHEN_GO]")) {
 
-        if (!hasPhone || !hasName) {
-            // إذا نقصت البيانات، نطلبها ولا نرسل للمطبخ
-            reply = "على راسي يا غالي، بس يا ريت تبعتلي (الاسم ورقم التلفون) عشان أقدر أعتمد الطلب وأبعته للمطبخ فوراً.";
-        } else {
-            // 2. إذا البيانات كاملة -> نستخرج الفاتورة التفصيلية
-            const finalInvoice = reply.split("[KITCHEN_GO]")[1].trim();
+    const hasPhone = /(07[789]\d{7})/.test(reply);
+    const hasName = reply.includes("الاسم:") && !reply.includes("[اسم الزبون]");
 
-            // إرسال الفاتورة للمطبخ
-            await sendWA(SETTINGS.KITCHEN_GROUP, finalInvoice);
-            
-            // إرسال الفاتورة "نفسها" للزبون لتأكيد الاستلام
-            await sendWA(chatId, finalInvoice);
+    if (!hasPhone || !hasName) {
 
-            // حفظ الجلسة ومسحها بعد 24 ساعة لضمان الاستمرارية
-            SESSIONS[chatId].history.push({ role: "user", content: userMessage }, { role: "assistant", content: reply });
-            setTimeout(() => { if (SESSIONS[chatId]) delete SESSIONS[chatId]; }, 86400000);
-            return; // إنهاء العملية هنا لمنع التكرار
-        }
-    }
+        reply = "على راسي يا غالي، بس ابعتلي الاسم ورقم التلفون عشان أعتمد الطلب.";
 
-    // إرسال الرد العادي (الفاتورة المبدئية أو الدردشة)
-    await sendWA(chatId, reply);
-    SESSIONS[chatId].history.push({ role: "user", content: userMessage }, { role: "assistant", content: reply });
+        await sendWA(chatId, reply);
 
+    } else {
+
+        const finalOrder = reply.split("[KITCHEN_GO]")[1].trim();
+
+        await sendWA(SETTINGS.KITCHEN_GROUP, finalOrder);
+
+        await sendWA(chatId, "أبشر، طلبك اعتمدناه وصار بالمطبخ 🙏");
+
+        SESSIONS[chatId].history.push(
+            { role: "user", content: userMessage },
+            { role: "assistant", content: reply }
+        );
+
+        setTimeout(() => {
+            if (SESSIONS[chatId]) delete SESSIONS[chatId];
+        }, 86400000);
+
+        return;
+    }
+}
+
+await sendWA(chatId, reply);
+
+SESSIONS[chatId].history.push(
+    { role: "user", content: userMessage },
+    { role: "assistant", content: reply }
+);
   } catch (err) { 
       console.error("Error:", err.message); 
   }
-let reply = aiResponse.data.choices[0].message.content;
-
-/* --- استبدل المنطقة التي تلي تعريف reply بهذا الكود --- */
-
-    
-
-    let reply = aiResponse.data.choices[0].message.content;
 
 
 
-    if (reply.includes("[KITCHEN_GO]")) {
 
         // 1. الفحص الذكي: هل توجد بيانات حقيقية (اسم ورقم هاتف أردني)؟
 
@@ -442,7 +442,6 @@ let reply = aiResponse.data.choices[0].message.content;
 
     // --- بداية التعديل الجديد ---
 
-    if (reply.includes("[KITCHEN_GO]")) {
 
         // فحص وجود البيانات الأساسية (الاسم والرقم الأردني)
 
@@ -502,7 +501,6 @@ let reply = aiResponse.data.choices[0].message.content;
 
     await sendWA(chatId, reply);
 
-    if (reply.includes("[KITCHEN_GO]")) {
 
       const finalOrder = reply.split("[KITCHEN_GO]")[1].trim();
 
