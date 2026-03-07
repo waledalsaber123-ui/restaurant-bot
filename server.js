@@ -14,6 +14,11 @@ const SETTINGS = {
 
 const SESSIONS = {};
 
+// دالة لاستخراج رقم الهاتف الأردني تلقائياً
+const extractPhone = (text) => {
+  const match = text.match(/(07[789]\d{7})/);
+  return match ? match[0] : null;
+};
 /* ================= قائمة الطعام الكاملة مع التفاصيل ================= */
 const MENU_ITEMS = {
 🍔 **المنيو الرسمي (أسعار بالدينار)**:
@@ -110,20 +115,33 @@ ${zonesList}
 app.post("/webhook", async (req, res) => {
   res.sendStatus(200);
   const body = req.body;
-  
   if (body.typeWebhook !== "incomingMessageReceived") return;
 
   const chatId = body.senderData?.chatId;
   if (!chatId || chatId.endsWith("@g.us")) return;
 
-  // تهيئة الجلسة
+  // 1. تهيئة الجلسة مع إضافة مخازن للبيانات
   if (!SESSIONS[chatId]) {
     SESSIONS[chatId] = { 
       history: [], 
-      pendingOrder: null,
-      awaitingConfirmation: false 
+      userName: null, 
+      userPhone: null, 
+      userAddress: null 
     };
   }
+  const session = SESSIONS[chatId];
+
+  let userMessage = body.messageData?.textMessageData?.textMessage || 
+                    body.messageData?.extendedTextMessageData?.text;
+  if (!userMessage) return;
+
+  // 2. تحديث البيانات المحفوظة إذا وجدنا رقم هاتف أو معلومة جديدة
+  const phone = extractPhone(userMessage);
+  if (phone) session.userPhone = phone;
+
+  // 3. إضافة رسالة المستخدم للتاريخ فوراً
+  session.history.push({ role: "user", content: userMessage });
+  if (session.history.length > 10) session.history.shift();
   
   const session = SESSIONS[chatId];
 
