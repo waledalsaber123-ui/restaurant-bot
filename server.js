@@ -20,10 +20,11 @@ const PROCESSED_MESSAGES = new Set();
 const getSystemPrompt = () => {
   return `
 أنت "صابر"، المسؤول عن الحجوزات في مطعم (صابر جو سناك). لهجتك أردنية نشمية، خدوم وذكي جداً.
+// استبدل قسم الموقع بهذا النص داخل البرومبت
 📍 **معلومات الموقع والتواصل**:
-- العنوان الرسمي: عمان - شارع الجامعة الأردنية - طلوع هافانا.
-- فرعنا الوحيد: يوجد لدينا فرع واحد فقط حالياً.
-- لوكيشن المحل: https://maps.app.goo.gl/NdFQY67DEnsWQdKZ9
+- العنوان: عمان - شارع الجامعة الأردنية - طلوع هافانا.
+- اللوكيشن (الرابط): https://maps.app.goo.gl/NdFQY67DEnsWQdKZ9
+⚠️ **قاعدة ذهبية**: إذا طلب الزبون اللوكيشن أو سأل "وينكم"، ابعث الرابط فوراً (ممنوع تعتذر أو تقول ما بقدر أبعث لوكيشن).
 
 ⏰ **ساعات الدوام**:
 - نفتح يومياً من الساعة 2:00 ظهراً وحتى الساعة 3:30 فجراً.
@@ -130,9 +131,11 @@ app.post("/webhook", async (req, res) => {
   const body = req.body;
   if (body.typeWebhook !== "incomingMessageReceived") return;
 
-  const chatId = body.senderData.chatId;
+  
+   const chatId = body.senderData.chatId;
+  // السطر الجديد يوضع هنا لمنع الرد على المجموعات
+  if (chatId.endsWith('@g.us')) return res.sendStatus(200);
   const userMessage = body.messageData.textMessageData?.textMessage || body.messageData.extendedTextMessageData?.text || "";
-
   if (!userMessage || PROCESSED_MESSAGES.has(body.idMessage)) return;
   PROCESSED_MESSAGES.add(body.idMessage);
 
@@ -157,21 +160,30 @@ app.post("/webhook", async (req, res) => {
     const hasPhone = phoneRegex.test(userMessage) || phoneRegex.test(reply);
     const hasName = (reply.includes("الاسم:") && !reply.includes("[اسم الزبون]")) || (userMessage.length > 3 && !userMessage.includes("عروض"));
 
-    if (reply.includes("[KITCHEN_GO]")) {
-      const confirmationWords = ["اعتمد", "نعم", "اوكي", "أكيد", "اه", "يلا", "تم"];
+if (reply.includes("[KITCHEN_GO]")) {
+      // كلمات التأكيد باللهجة الأردنية
+      const confirmationWords = ["اعتمد", "نعم", "اوكي", "أكيد", "اه", "يلا", "تم", "ماشي", "توكل"];
       const isConfirmed = confirmationWords.some(word => userMessage.toLowerCase().includes(word));
 
+      // 1. إذا نقص التلفون
       if (!hasPhone) {
-        reply = "على راسي يا نشمي، بس ابعتلي (الاسم ورقم التلفون) عشان أعتمد الطلب للمطبخ فوراً.";
-      } else if (!isConfirmed && !session.waitingConfirmation) {
+        reply = "على راسي يا نشمي، بس ابعتلي (الاسم ورقم التلفون) عشان أثبت الطلب للمطبخ فوراً.";
+      } 
+      // 2. إذا البيانات كاملة بس لسه ما أكد "اعتمد"
+      else if (!isConfirmed && !session.waitingConfirmation) {
         session.waitingConfirmation = true;
-        reply = "تمام يا غالي، الفاتورة جاهزة والبيانات كاملة. أعتمد وأبعت الطلب للمطبخ؟";
-      } else {
-        const orderData = reply.split("[KITCHEN_GO]")[1].trim();
-        await sendWA(SETTINGS.KITCHEN_GROUP, orderData);
+        reply = "أبشر، الفاتورة والبيانات جاهزة. أعتمد وأبعت الطلب للمطبخ يا غالي؟";
+      } 
+      // 3. إذا البيانات كاملة والزبون حكى "اعتمد" أو "تم"
+      else if (isConfirmed || session.waitingConfirmation) {
+        const orderParts = reply.split("[KITCHEN_GO]");
+        const orderData = orderParts[orderParts.length - 1].trim(); // نأخذ النص اللي بعد الكلمة المفتاحية
+        
+        await sendWA(SETTINGS.KITCHEN_GROUP, orderData); // الإرسال لجروب المطبخ
         await sendWA(chatId, "أبشر، طلبك اعتمدناه وصار بالمطبخ! نورت مطعم صابر 🙏");
+        
         session.waitingConfirmation = false;
-        session.history = []; 
+        session.history = []; // تصفير الجلسة بعد الطلب الناجح
         return;
       }
     }
