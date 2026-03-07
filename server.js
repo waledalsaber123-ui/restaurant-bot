@@ -118,7 +118,7 @@ app.post("/webhook", async (req, res) => {
             model: "gpt-4o", 
             messages: [
                 { role: "system", content: getSystemPrompt() },
-                ...session.history.slice(-40), // 🚨 ذاكرة 40 رسالة كما طلبت
+                ...session.history.slice(-18), // 🚨 ذاكرة 18 رسالة كما طلبت
                 { role: "user", content: userMessage }
             ],
             temperature: 0
