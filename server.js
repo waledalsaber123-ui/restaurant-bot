@@ -203,18 +203,19 @@ try {
       const order = session.pendingOrder;
       
       if (order) {
-        const kitchenMessage = `[KITCHEN_GO]
-🔥 **طلب جديد مؤكد**
-- **الاسم**: ${order.name || "غير محدد"}
-- **الرقم**: ${order.phone || "غير محدد"}
-- **النوع**: ${order.type === "pickup" ? "استلام 🚶" : "توصيل 🚚"}
-- **العنوان**: ${order.type === "delivery" ? (order.address || order.zone || "غير محدد") : "الاستلام من المطعم"}
-- **الطلب**:
-${order.items.map(item => `  • ${item}`).join('\n')}
-- **المجموع**: ${order.total} د.أ
+const kitchenMessage = `[KITCHEN_GO]
+🔥 *طلب جديد مؤكد*
+- *الاسم*: ${order.name || "غير محدد"}
+- *الرقم*: ${order.phone || "غير محدد"}
+- *النوع*: ${order.type === "pickup" ? "استلام 🚶" : "توصيل 🚚"}
+- *العنوان*: ${order.type === "delivery" ? (order.address || order.zone) : "الاستلام من المطعم"}
+- *الطلب*:
+${order.items && order.items.length > 0 
+  ? order.items.map(item => `  • ${item}`).join('\n') 
+  : "  • (لم يتم تحديد الأصناف)"}
+- *المجموع*: ${order.total} د.أ
 
 ⏱️ التجهيز: 30-45 دقيقة`;
-
         // إرسال للمطبخ
         await sendWA(SETTINGS.KITCHEN_GROUP, kitchenMessage);
         
