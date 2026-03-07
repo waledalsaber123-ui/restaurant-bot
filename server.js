@@ -70,7 +70,7 @@ const getSystemPrompt = () => {
 };
 
 /* ================= المحرك الرئيسي ================= */
-/* ================= المحرك الرئيسي - نسخة إصلاح الإرسال للمطبخ ================= */
+/* ================= المحرك الرئيسي - نسخة إصلاح الطلب الفاضي ================= */
 app.post("/webhook", async (req, res) => {
   res.sendStatus(200);
   const body = req.body;
@@ -101,6 +101,13 @@ app.post("/webhook", async (req, res) => {
 
     let reply = aiResponse.data.choices[0].message.content;
 
+    // 1. استخراج الفاتورة أو الطلب إذا وجد [KITCHEN_GO] في الرد الحالي
+    if (reply.includes("[KITCHEN_GO]")) {
+        const parts = reply.split("[KITCHEN_GO]");
+        session.pendingOrderData = parts[1].trim(); // تخزين تفاصيل الأكل
+        reply = parts[0].trim(); // الرد اللي بروح للزبون
+    }
+
     // فحص الهاتف والاسم
     const phoneRegex = /(07[789]\d{7})/;
     const hasPhone = phoneRegex.test(userMessage) || phoneRegex.test(reply) || session.history.some(m => phoneRegex.test(m.content));
@@ -109,38 +116,33 @@ app.post("/webhook", async (req, res) => {
     const confirmationWords = ["اعتمد", "نعم", "اوكي", "أكيد", "اه", "يلا", "تم", "ماشي", "توكل", "ثبت", "هات", "انجز", "توصيل", "أوك", "اوك"];
     const isConfirmed = confirmationWords.some(word => userMessage.toLowerCase().includes(word));
 
-    // إذا البوت استخرج بيانات المطبخ
-    if (reply.includes("[KITCHEN_GO]")) {
-        // حفظ تفاصيل الطلب في الجلسة حتى لا تضيع
-        session.pendingOrderData = reply.split("[KITCHEN_GO]")[1] || reply;
-    }
-
+    // 2. منطق الإرسال للمطبخ (التأكد من وجود بيانات)
     if (session.pendingOrderData) {
-      // 1. فحص إذا كان نقص بيانات (اسم ورقم)
+      
       if (!hasPhone) {
-        reply = "على راسي، بس زودني بـ (الاسم ورقم التلفون) عشان أثبت الطلب وأرميه عالمطبخ فوراً.";
+        reply = "على راسي يا نشمي، بس زودني بـ (الاسم ورقم التلفون) عشان أرمي الطلب عالمطبخ فوراً.";
       } 
-      // 2. إذا البيانات موجودة والزبون أكد (أو بعت الرقم وهو أصلاً بمرحلة التأكيد)
       else if (isConfirmed || (hasPhone && session.waitingConfirmation)) {
         
         let kitchenHeader = "✅ طلب جديد مؤكد:\n";
         if (userMessage.includes("استلام") || reply.includes("استلام")) kitchenHeader = "🏪 طلب استلام:\n";
         
-        // الإرسال الفعلي للجروب
-        await sendWA(SETTINGS.KITCHEN_GROUP, kitchenHeader + session.pendingOrderData.trim());
+        // التعديل الجوهري: نرسل الهيدر + البيانات المخزنة
+        const finalOrder = kitchenHeader + session.pendingOrderData;
         
-        // رد التأكيد للزبون
-        reply = "أبشر يا نشمي، طلبك اعتمدناه وصار بالمطبخ! نورت مطعم صابر 🙏";
+        await sendWA(SETTINGS.KITCHEN_GROUP, finalOrder);
         
-        // تصفير حالة الانتظار والطلب المعلق
+        reply = "أبشر، طلبك اعتمدناه وصار بالمطبخ! نورت مطعم صابر 🙏";
+        
+        // تصفير البيانات بعد الإرسال الناجح
         session.waitingConfirmation = false;
-        session.pendingOrderData = null;
+        session.pendingOrderData = null; 
       } 
       else {
-        // حالة انتظار التأكيد
         session.waitingConfirmation = true;
-        reply = reply.replace("[KITCHEN_GO]", "").trim();
-        if (!reply.includes("أعتمد")) reply += "\n\nأعتمد الطلب وأبعته للمطبخ يا نشمي؟";
+        if (!reply.includes("أعتمد")) {
+            reply += "\n\nأعتمد الطلب وأبعته للمطبخ يا نشمي؟";
+        }
       }
     }
 
