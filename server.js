@@ -16,11 +16,24 @@ const SETTINGS = {
 const SESSIONS = {};
 
 /* ================= نظام البرومبت الشامل (بدون أي تعديل على المنيو) ================= */
-const getSystemPrompt = () => {
-  return `
-أنت "صابر"، المسؤول عن الحجوزات في مطعم (صابر جو سناك). لهجتك أردنية نشمية، خدوم وذكي جداً.
-أنت خبير باللهجة العامية الأردنية. افهم المصطلحات مثل (بدي، رتبني، زبطني، هسا، قديش، وينكم، ليرتين، الرصيد، كليك).
+const SYSTEM_PROMPT = `
+أنت "صابر"، مسؤول الطلبات في مطعم صابر جو سناك.
+قواعدك الصارمة:
+1. ممنوع اختراع أسعار أو تعويضات نهائياً.
+2. الذاكرة عندك قوية جداً وتتذكر آخر 30 رسالة.
+3. بمجرد ما يرسل الزبون (الاسم، الرقم، العنوان) أو يقول "تمام/اعتمد"، يجب فوراً إرسال الملخص بالتنسيق التالي:
 
+شكرًا لك، [الاسم]. إليك ملخص الطلب النهائي:
+- *الطلب*: [التفاصيل]
+- *السعر*: [السعر] دينار
+- *رسوم التوصيل*: [التوصيل] دينار
+- *المجموع الكلي*: [الإجمالي] دينار
+- *الاسم*: [الاسم]
+- *الرقم*: [الرقم]
+- *العنوان*: [العنوان]
+سيتم توصيل الطلب خلال 30-45 دقيقة. شكرًا لاختيارك لنا!
+[KITCHEN_GO]
+`
 📍 **معلومات الموقع والتواصل**:
 موقعنا: عمان - شارع الجامعة الأردنية - طلوع هافانا.
 رابط اللوكيشن: https://maps.app.goo.gl/NdFQY67DEnsWQdKZ9
@@ -69,59 +82,65 @@ const getSystemPrompt = () => {
 `;
 };
 
-/* ================= WEBHOOK ================= */
+/* ================= منطق الـ Webhook المحدث ================= */
 app.post("/webhook", async (req, res) => {
   res.sendStatus(200);
   const body = req.body;
-  
-  // دعم الرسائل النصية والصور
   if (body.typeWebhook !== "incomingMessageReceived") return;
 
   const chatId = body.senderData?.chatId;
-  let text = body.messageData?.textMessageData?.textMessage || 
-             body.messageData?.extendedTextMessageData?.text || "";
-  
-  const caption = body.messageData?.fileMessageData?.caption || ""; // في حال أرسل صورة مع نص
-  const imageUrl = body.messageData?.fileMessageData?.downloadUrl || null;
+  const text = (body.messageData?.textMessageData?.textMessage || 
+               body.messageData?.extendedTextMessageData?.text || "").trim();
 
-  if (!chatId || chatId.includes("@g.us")) return;
+  if (!chatId || chatId.includes("@g.us") || !text) return;
 
-  // إدارة الجلسة
   if (!SESSIONS[chatId]) {
       SESSIONS[chatId] = { history: [], lastActive: Date.now(), alreadyOrdered: false };
   }
   const session = SESSIONS[chatId];
   session.lastActive = Date.now();
 
-  // إذا كان قد طلب مسبقاً
+  // إذا تم الطلب مسبقاً، توجيه للرقم فوراً
   if (session.alreadyOrdered) {
-      await sendWA(chatId, `يا غالي، طلبك صار بالمطبخ وعم نجهزه. لأي تعديل أو استفسار تواصل معنا مباشرة على الرقم: ${SETTINGS.RESTAURANT_PHONE} 📞`);
+      await sendWA(chatId, `يا غالي طلبك صار بالمطبخ وعم نجهزه. لأي استفسار كلمنا عيسى: ${SETTINGS.RESTAURANT_PHONE} 📞`);
       return;
-  }
-
-  // دمج النص مع الكابشن إذا وُجدت صورة
-  const userContent = [
-    { type: "text", text: text + " " + caption }
-  ];
-
-  if (imageUrl) {
-    userContent.push({ type: "image_url", image_url: { url: imageUrl } });
   }
 
   try {
     const ai = await axios.post("https://api.openai.com/v1/chat/completions", {
-      model: "gpt-4o-mini", // هذا الموديل يدعم Vision (الصور)
+      model: "gpt-4o-mini",
       messages: [
         { role: "system", content: SYSTEM_PROMPT },
-        ...session.history.slice(-30), // توسيع الذاكرة لـ 30 رسالة
-        { role: "user", content: userContent }
+        ...session.history.slice(-30), // الذاكرة لـ 30 رسالة
+        { role: "user", content: text }
       ],
-      temperature: 0.3
-    }, {
-      headers: { Authorization: `Bearer ${SETTINGS.OPENAI_KEY}` },
-      timeout: 20000
-    });
+      temperature: 0.2 // تقليل الحرارة لضمان دقة الأسعار وعدم التأليف
+    }, { headers: { Authorization: `Bearer ${SETTINGS.OPENAI_KEY}` }, timeout: 15000 });
 
+    let reply = ai.data.choices[0].message.content;
+
+    // فحص الإرسال للمطبخ
+    if (reply.includes("[KITCHEN_GO]")) {
+      const orderClean = reply.replace("[KITCHEN_GO]", "\n✅ *طلب جديد مؤكد*").trim();
+      
+      // إرسال للمطبخ
+      await sendWA(SETTINGS.KITCHEN_GROUP, orderClean);
+      // إرسال للزبون
+      await sendWA(chatId, orderClean);
+      
+      session.alreadyOrdered = true; 
+      return;
+    }
+
+    await sendWA(chatId, reply);
+    session.history.push({ role: "user", content: text }, { role: "assistant", content: reply });
+
+  } catch (err) {
+    // في حال حصل خطأ، لا نعطي رسالة "سامحني" ونحاول مرة أخرى
+    console.error("Error in AI Logic:", err);
+    await sendWA(chatId, "أبشر يا غالي، بس عُلق السيستم ثانية. أرسل (الاسم والرقم) مرة ثانية عشان أعتمد الطلب فوراً! 🙏");
+  }
+});
     let reply = ai.data.choices[0].message.content;
 
     if (reply.includes("[KITCHEN_GO]")) {
