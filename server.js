@@ -23,6 +23,12 @@ const PROCESSED_MESSAGES = new Set();
 /* ================= نظام البرومبت (المناطق كاملة + حجز الاستلام بالوقت) ================= */
 const getSystemPrompt = () => {
   return `
+  `
+⚠️ **تعليمات الاستمرارية ومنع نسيان الطلب**:
+- إذا قام الزبون بتحديد أصناف الطعام ثم قال كلمة "بكره" أو "أكد" أو "اعتمد"، لا تبدأ التحية من جديد. 
+- اعتبر كلمة "بكره" هي تحديد لموعد الاستلام للطلب الذي تم ذكره في الرسائل السابقة.
+- اجمع الأصناف السابقة مع الموعد الجديد (بكره) وأرسل [KITCHEN_GO] فوراً.
+`
 أنت "صابر"، المسؤول عن الحجوزات في مطعم (صابر جو سناك). 
 ⚠️ **قواعد العمل (إجبارية)**:
 1. **حجز الاستلام**: لا ترفض الحجز أبداً. إذا طلب الزبون استلام، اسأله "أي ساعة حابب يكون طلبك جاهز؟" وثبّت الوقت في المطبخ.
@@ -91,9 +97,11 @@ app.post("/webhook", async (req, res) => {
   const chatId = body.senderData?.chatId;
   if (!chatId || chatId.endsWith("@g.us")) return;
 
-  if (!SESSIONS[chatId]) SESSIONS[chatId] = { history: [] };
-  const session = SESSIONS[chatId];
-
+ // قبل إرسال الرسالة لـ AI، تأكد أنك لا تصفر الذاكرة يدوياً
+if (!SESSIONS[chatId]) {
+    SESSIONS[chatId] = { history: [] };
+}
+// لا تضع أي رسالة ترحيب تلقائية (Hardcoded) هنا، اترك الـ AI هو من يقرر بناءً على الذاكرة.
   let userMessage = "";
   if (body.messageData?.typeMessage === "textMessage" || body.messageData?.typeMessage === "extendedTextMessage") {
     userMessage = body.messageData.textMessageData?.textMessage || body.messageData.extendedTextMessageData?.text;
@@ -104,24 +112,39 @@ app.post("/webhook", async (req, res) => {
   if (!userMessage) return;
 
   try {
-    const aiResponse = await axios.post("https://api.openai.com/v1/chat/completions", {
-      model: "gpt-4o",
-      messages: [
+  const aiResponse = await axios.post("https://api.openai.com/v1/chat/completions", {
+    model: "gpt-4o",
+    messages: [
         { role: "system", content: getSystemPrompt() },
-        ...session.history.slice(-10),
+        // تأكد من رفع الرقم هنا إلى 15 أو 20 رسالة
+        ...session.history.slice(-20), 
         { role: "user", content: userMessage }
-      ],
-      temperature: 0 // للالتزام التام بالوقت والأسعار
-    }, { headers: { Authorization: `Bearer ${SETTINGS.OPENAI_KEY}` } });
-
+    ],
+    temperature: 0 // صفر لضمان الدقة ومنع الاجتهاد
+}, { headers: { Authorization: `Bearer ${SETTINGS.OPENAI_KEY}` } });
     let reply = aiResponse.data.choices[0].message.content;
 
     if (reply.includes("[KITCHEN_GO]")) {
       const finalOrder = reply.split("[KITCHEN_GO]")[1].trim();
       await sendWA(SETTINGS.KITCHEN_GROUP, `✅ *طلب جديد مؤكد*:\n${finalOrder}`);
       await sendWA(chatId, "أبشر، طلبك اعتمدناه وصار بالمطبخ! نورت مطعم صابر 🙏");
-      delete SESSIONS[chatId];
-      return;
+// داخل شرط if (reply.includes("[KITCHEN_GO]"))
+if (reply.includes("[KITCHEN_GO]")) {
+    const finalOrder = reply.split("[KITCHEN_GO]")[1].trim();
+    await sendWA(SETTINGS.KITCHEN_GROUP, `✅ *طلب جديد مؤكد*:\n${finalOrder}`);
+    await sendWA(chatId, "أبشر، طلبك اعتمدناه وصار بالمطبخ! نورت مطعم صابر 🙏");
+
+    // تعديل المسح ليكون بعد 24 ساعة بدلاً من المسح الفوري
+    // 86400000 مللي ثانية = 24 ساعة
+    setTimeout(() => {
+        if (SESSIONS[chatId]) {
+            delete SESSIONS[chatId];
+            console.log(`Session cleared for ${chatId} after 24 hours.`);
+        }
+    }, 86400000); 
+
+    return; // إنهاء المعالجة هنا
+}      return;
     }
 
     await sendWA(chatId, reply);
