@@ -24,6 +24,23 @@ const PROCESSED_MESSAGES = new Set();
 const getSystemPrompt = () => {
   return `
  // أضف هذا النص داخل الـ System Prompt (التعليمات)
+`// أضف هذا داخل الـ System Prompt
+`
+⚠️ **نظام التأكيد المزدوج والفاتورة**:
+1. المرحلة الأولى: عند اكتمال الأصناف، أرسل للزبون "فاتورة مبدئية" بهذا الشكل:
+   "طلبك هو: [الأصناف] بقيمة [السعر].
+   أكدلي عشان آخذ منك (الاسم والرقم والعنوان) ونبعته للمطبخ؟"
+
+2. المرحلة الثانية (التأكيد النهائي): لا تضع [KITCHEN_GO] إلا بعد الحصول على الاسم والرقم. 
+   يجب أن يكون نص الرد بعد [KITCHEN_GO] مطابقاً لهذا التنسيق تماماً:
+   🔔 طلب جديد!
+   الاسم: [اسم الزبون]
+   الرقم: [رقم الزبون]
+   العنوان (أو استلام): [المنطقة أو كلمة استلام]
+   الطلب: [تفاصيل الأصناف]
+   سعر الأكل: [السعر]
+   أجور التوصيل: [الأجر]
+   الإجمالي: [المجموع الكلي]
 `
 🚫 **قاعدة الحظر الصارمة (إلزامي)**:
 ممنوع نهائياً إرسال الكود [KITCHEN_GO] إلا إذا توفرت هذه البيانات كاملة:
@@ -134,7 +151,39 @@ if (!SESSIONS[chatId]) {
     temperature: 0 // صفر لضمان الدقة ومنع الاجتهاد
 }, { headers: { Authorization: `Bearer ${SETTINGS.OPENAI_KEY}` } });
     let reply = aiResponse.data.choices[0].message.content;
+let reply = aiResponse.data.choices[0].message.content;
 
+    // --- بداية التعديل الجديد ---
+    if (reply.includes("[KITCHEN_GO]")) {
+        // فحص وجود البيانات الأساسية (الاسم والرقم الأردني)
+        const hasPhone = /(07[789]\d{7})/.test(reply) || reply.includes("07");
+        const hasName = reply.includes("الاسم") && !reply.includes("[اسم الزبون]");
+
+        if (!hasPhone || !hasName) {
+            // إذا حاول البوت الإرسال والبيانات ناقصة، نجبره على طلبها
+            reply = "على راسي يا غالي، بس يا ريت تبعتلي (الاسم ورقم التلفون) عشان أثبت الطلب وأبعته للمطبخ فوراً.";
+        } else {
+            // إذا البيانات كاملة، يتم الإرسال للمطبخ بالتنسيق اللي طلبته
+            const orderDetails = reply.split("[KITCHEN_GO]")[1].trim();
+            
+            // إرسال لجروب المطبخ
+            await sendWA(SETTINGS.KITCHEN_GROUP, orderDetails); 
+            
+            // إرسال تأكيد للزبون
+            await sendWA(chatId, "أبشر، طلبك اعتمدناه وصار بالمطبخ! نورت مطعم صابر 🙏");
+
+            // مسح الجلسة بعد 24 ساعة لضمان عدم نسيان "بكره"
+            setTimeout(() => {
+                if (SESSIONS[chatId]) delete SESSIONS[chatId];
+            }, 86400000); 
+
+            return; // إنهاء الدالة هنا لمنع إرسال الرد مرتين
+        }
+    }
+    // --- نهاية التعديل الجديد ---
+
+    // إرسال الرد العادي للزبون (سواء كان الفاتورة المبدئية أو طلب البيانات)
+    await sendWA(chatId, reply);
     if (reply.includes("[KITCHEN_GO]")) {
       const finalOrder = reply.split("[KITCHEN_GO]")[1].trim();
       await sendWA(SETTINGS.KITCHEN_GROUP, `✅ *طلب جديد مؤكد*:\n${finalOrder}`);
