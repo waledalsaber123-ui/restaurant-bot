@@ -15,49 +15,45 @@ const SETTINGS = {
 const SESSIONS = {};
 
 /* ================= قائمة الطعام الكاملة مع التفاصيل ================= */
-const MENU = {
+const MENU_ITEMS = {
   // عروض التوفير
-  "ديناميت": { name: "ساندويش ديناميت (45 سم)", price: 1.0, category: "offers" },
-  "صاروخ شاورما": { name: "صاروخ شاورما (45 سم)", price: 1.5, category: "offers" },
-  "قنبلة رمضان": { name: "قنبلة رمضان (برجر 250 جرام)", price: 2.25, category: "offers" },
-  "خابور كباب": { name: "خابور كباب (45 سم - 250غم كباب)", price: 2.0, category: "offers" },
+  " زنجر ديناميت": { name: "ساندويش ديناميت (45 سم)", price: 1.0, category: "offers", isMeal: false },
+  "وجبة ديناميت": { name: "وجبة ديناميت (ساندويش + بطاطا + بيبسي)", price: 2.0, category: "offers", isMeal: true },
+  "صاروخ شاورما": { name: "صاروخ شاورما (45 سم)", price: 1.5, category: "offers", isMeal: false },
+  "وجبة صاروخ شاورما": { name: "وجبة صاروخ شاورما (ساندويش + بطاطا + بيبسي)", price: 2.5, category: "offers", isMeal: true },
+  "قنبلة رمضان": { name: "قنبلة رمضان (برجر 250 جرام)", price: 2.25, category: "offers", isMeal: false },
+  "وجبة قنبلة رمضان": { name: "وجبة قنبلة رمضان (برجر + بطاطا + بيبسي)", price: 3.25, category: "offers", isMeal: true },
+  "خابور كباب": { name: "خابور كباب (45 سم - 250غم كباب)", price: 2.0, category: "offers", isMeal: false },
+  "وجبة خابور كباب": { name: "وجبة خابور كباب (خابور + بطاطا + بيبسي)", price: 3.0, category: "offers", isMeal: true },
   
   // وجبات فردية
-  "برجر دجاج": { name: "وجبة برجر دجاج", price: 2.0, category: "individual" },
-  "سندويش برجر": { name: "سندويش برجر", price: 1.5, category: "individual" },
-  "زنجر": { name: "وجبة زنجر", price: 2.0, category: "individual" },
-  "سندويش زنجر": { name: "سندويش زنجر", price: 1.5, category: "individual" },
-  "سكالوب": { name: "وجبة سكالوب", price: 2.0, category: "individual" },
-  "سندويش سكالوب": { name: "سندويش سكالوب", price: 1.5, category: "individual" },
+  "برجر لحمة 150 غرام ": { name: "وجبة برجر دجاج", price: 2.0, category: "individual", isMeal: true },
+  "سكالوب": { name: "وجبة سكالوب", price: 2.0, category: "individual", isMeal: true },
+  "سندويش سكالوب": { name: "سندويش سكالوب", price: 1.5, category: "individual", isMeal: false },
   
   // شاورما
-  "شاورما عادي": { name: "ساندويش شاورما عادي", price: 1.0, category: "shawarma" },
-  "شاورما سوبر": { name: "ساندويش شاورما سوبر", price: 1.5, category: "shawarma" },
-  "وجبة شاورما عادي": { name: "وجبة شاورما عادي", price: 2.0, category: "shawarma" },
-  "وجبة شاورما سوبر": { name: "وجبة شاورما سوبر", price: 2.75, category: "shawarma" },
-  "وجبة شاورما دبل": { name: "وجبة شاورما دبل", price: 3.25, category: "shawarma" },
-  "وجبة شاورما تربل": { name: "وجبة شاورما تربل", price: 4.0, category: "shawarma" },
+  "شاورما عادي": { name: "ساندويش شاورما عادي", price: 1.0, category: "shawarma", isMeal: false },
+  "شاورما سوبر": { name: "ساندويش شاورما سوبر", price: 1.5, category: "shawarma", isMeal: false },
+  "وجبة شاورما عادي": { name: "وجبة شاورما عادي", price: 2.0, category: "shawarma", isMeal: true },
+  "وجبة شاورما سوبر": { name: "وجبة شاورما سوبر", price: 2.75, category: "shawarma", isMeal: true },
+  "وجبة شاورما دبل": { name: "وجبة شاورما دبل", price: 3.25, category: "shawarma", isMeal: true },
+  "وجبة شاورما تربل": { name: "وجبة شاورما تربل", price: 4.0, category: "shawarma", isMeal: true },
   
   // وجبات عائلية
-  "الاقتصادية": { name: "الاقتصادية (4 ساندويشات مشكلة + 2 بطاطا + 1 لتر بيبسي)", price: 7.0, category: "family" },
-  "العائلية": { name: "العائلية (6 ساندويشات مشكلة + 4 بطاطا + 2 لتر بيبسي)", price: 10.0, category: "family" },
-  "العملاقة": { name: "العملاقة (9 ساندويشات مشكلة + 6 بطاطا + 2 لتر بيبسي)", price: 14.0, category: "family" },
-  "شاورما اقتصادية": { name: "وجبة شاورما اقتصادية (6 ساندويشات)", price: 6.0, category: "family" },
-  "شاورما أوفر": { name: "وجبة شاورما أوفر (8 ساندويشات)", price: 9.0, category: "family" }
+  "الاقتصادية": { name: "الاقتصادية (4 ساندويشات مشكلة + 2 بطاطا + 1 لتر بيبسي)", price: 7.0, category: "family", isMeal: true },
+  "العائلية": { name: "العائلية (6 ساندويشات مشكلة + 4 بطاطا + 2 لتر بيبسي)", price: 10.0, category: "family", isMeal: true },
+  "العملاقة": { name: "العملاقة (9 ساندويشات مشكلة + 6 بطاطا + 2 لتر بيبسي)", price: 14.0, category: "family", isMeal: true },
+  "شاورما اقتصادية": { name: "وجبة شاورما اقتصادية (6 ساندويشات)", price: 6.0, category: "family", isMeal: true },
+  "شاورما أوفر": { name: "وجبة شاورما أوفر (8 ساندويشات)", price: 9.0, category: "family", isMeal: true }
 };
 
-/* ================= مناطق التوصيل والأسعار (كاملة) ================= */
+// نفس قائمة مناطق التوصيل الكاملة من الكود السابق (أكثر من 200 منطقة)
 const DELIVERY_ZONES = {
-  // 1.5 دينار
   "صويلح": 1.5,
   "إشارة الدوريات": 1.5,
   "مجدي مول": 1.5,
   "المختار مول": 1.5,
-  
-  // 1.75 دينار
   "طلوع نيفين": 1.75,
-  
-  // 2 دينار
   "شارع الجامعة": 2.0,
   "الجامعة الأردنية": 2.0,
   "ضاحية الرشيد": 2.0,
@@ -83,14 +79,10 @@ const DELIVERY_ZONES = {
   "دوار الواحة": 2.0,
   "مشفى الحرمين": 2.0,
   "كلية المجتمع العربي": 2.0,
-  
-  // 2.25 دينار
   "حي البركة": 2.25,
   "الرابية": 2.25,
   "دوار الكيلو": 2.25,
   "دوار خلدا": 2.25,
-  
-  // 2.5 دينار
   "الديار": 2.5,
   "السهل": 2.5,
   "الروابي": 2.5,
@@ -126,15 +118,11 @@ const DELIVERY_ZONES = {
   "السفارة الصينية": 2.5,
   "دائرة الافتاء": 2.5,
   "وزارة الثقافة": 2.5,
-  
-  // 2.75 دينار
   "شارع مكة": 2.75,
   "دوار المشاغل": 2.75,
   "شارع عبدالله غوشة": 2.75,
   "مجمع جبر": 2.75,
   "مخيم الحسين": 2.75,
-  
-  // 3 دينار
   "الفحيص": 3.0,
   "الدوار الأول": 3.0,
   "الدوار الثاني": 3.0,
@@ -183,11 +171,7 @@ const DELIVERY_ZONES = {
   "شارع عرار": 3.0,
   "صافوط": 3.0,
   "البقعة": 3.0,
-  
-  // 3.25 دينار
   "جبل الزهور": 3.25,
-  
-  // 3.5 دينار
   "البيادر": 3.5,
   "وسط البلد": 3.5,
   "شارع الحرية": 3.5,
@@ -198,11 +182,7 @@ const DELIVERY_ZONES = {
   "طبربور": 3.5,
   "مستشفى الحياة": 3.5,
   "جبل المريخ": 3.5,
-  
-  // 3.6 دينار
   "مرج الحمام": 3.6,
-  
-  // 4 دينار
   "وادي السير": 4.0,
   "الرباحية": 4.0,
   "المستندة": 4.0,
@@ -252,308 +232,227 @@ const DELIVERY_ZONES = {
   "مدارس الحصاد التربوي": 4.0,
   "ابو السوس": 4.0,
   "جامعة عمان المفتوحة": 4.0,
-  
-  // 5 دينار
   "عراق الامير": 5.0
 };
 
-/* ================= نظام البرومبت الشامل ================= */
+// دالة لبناء الـ system prompt
 const getSystemPrompt = () => {
+  const menuList = Object.entries(MENU_ITEMS)
+    .map(([key, item]) => `- ${item.name}: ${item.price} د.أ`)
+    .join('\n');
+    
+  const zonesList = Object.entries(DELIVERY_ZONES)
+    .map(([zone, price]) => `- ${zone}: ${price} د.أ`)
+    .join('\n');
+
   return `أنت "صابر"، المساعد الذكي لمطعم "صابر جو سناك" في عمان.
 
-🎯 **الهوية والشخصية**:
-- أنت نشمي أردني، خدوم، ودافئ
-- تستخدم اللهجة الأردنية اللطيفة: "أبشر"، "يا غالي"، "على راسي"، "نورت"، "هلا والله"
-- إذا الزبون حكى إنجليزي، رد عليه إنجليزي محترف مع الحفاظ على نفس الشخصية الودودة
+🎯 **الهوية**:
+- أردني نشمي، تستخدم اللهجة الأردنية (أبشر، يا غالي، على راسي، هلا والله)
+- إذا الزبون حكى إنجليزي، رد عليه إنجليزي بنفس الروح
 
-📍 **الموقع**:
-- العنوان: عمان - شارع الجامعة الأردنية - طلوع هافانا
-- الخريطة: https://maps.app.goo.gl/NdFQY67DEnswQdKZ9
-- ملاحظة مهمة: فرعنا الوحيد، ما في فروع ثانية!
+📍 **الموقع**: عمان - شارع الجامعة الأردنية - طلوع هافانا
+⏰ **الدوام**: 2 ظهراً - 3:30 فجراً
+💰 **الدفع**: كاش، زين كاش (0796893403)، CliQ
 
-⏰ **ساعات العمل**:
-- من 2:00 ظهراً حتى 3:30 فجراً
-- يومياً
+🍔 **المنيو الكامل**:
+${menuList}
 
-💰 **طرق الدفع**:
-- كاش
-- زين كاش: 0796893403
-- تحويل CliQ
+🚚 **مناطق التوصيل**:
+${zonesList}
 
-🍔 **المنيو الكامل (أسعار بالدينار الأردني)**:
-
-🥇 **أولاً: عروض التوفير (الأكثر طلباً)**:
-• ساندويش ديناميت (45 سم) - 1 د.أ
-• صاروخ شاورما (45 سم) - 1.5 د.أ
-• قنبلة رمضان (برجر 250 جرام) - 2.25 د.أ
-• خابور كباب (45 سم - 250 غم كباب) - 2 د.أ
-
-🍗 **ثانياً: الوجبات الفردية والسندويشات**:
-• وجبة برجر دجاج - 2 د.أ (الساندويش لوحده 1.5 د.أ)
-• وجبة زنجر - 2 د.أ (الساندويش لوحده 1.5 د.أ)
-• وجبة سكالوب - 2 د.أ (الساندويش لوحده 1.5 د.أ)
-
-🥙 **ثالثاً: وجبات الشاورما**:
-• ساندويش شاورما عادي - 1 د.أ
-• ساندويش شاورما سوبر - 1.5 د.أ
-• وجبة شاورما عادي - 2 د.أ
-• وجبة شاورما سوبر - 2.75 د.أ
-• وجبة شاورما دبل - 3.25 د.أ
-• وجبة شاورما تربل - 4 د.أ
-
-👪 **رابعاً: الوجبات العائلية**:
-• الاقتصادية (4 ساندويشات مشكلة + 2 بطاطا + 1 لتر بيبسي) - 7 د.أ
-• العائلية (6 ساندويشات مشكلة + 4 بطاطا + 2 لتر بيبسي) - 10 د.أ
-• العملاقة (9 ساندويشات مشكلة + 6 بطاطا + 2 لتر بيبسي) - 14 د.أ
-• وجبة شاورما اقتصادية (6 ساندويشات) - 6 د.أ
-• وجبة شاورما أوفر (8 ساندويشات) - 9 د.أ
-
-💡 **ملاحظة**: تقدر تحول أي ساندويش لوجبة بإضافة 1 دينار (بطاطا + بيبسي)
-
-🚚 **مناطق التوصيل الكاملة**:
-
-🔹 **1.5 دينار**:
-صويلح، إشارة الدوريات، مجدي مول، المختار مول
-
-🔹 **1.75 دينار**:
-طلوع نيفين
-
-🔹 **2 دينار**:
-شارع الجامعة، الجامعة الأردنية، ضاحية الرشيد، حي الجامعة، الجبيهة، ابن عوف، الكمالية، حي الديوان، المدينة الرياضية، ضاحية الروضة، تلاع العلي، حي الخالديين، جبل الحسين، المستشفى التخصصي، دوار الداخلية، استقلال مول، مكة مول، مستشفى الامل، ضاحية الاستقلال، شارع المدينة المنورة، ستي مول، نفق الصحافة، دوار الواحة، مشفى الحرمين، كلية المجتمع العربي
-
-🔹 **2.25 دينار**:
-حي البركة، الرابية، دوار الكيلو، دوار خلدا
-
-🔹 **2.5 دينار**:
-الديار، السهل، الروابي، ام اذينة، الصالحين، المستشفى الإسلامي، خلدا، ام السماق، المدينة الطبية، دابوق، حي المنصور، الجاردنز، شارع وصفي التل، الشميساني، وادي صقرة، اللويبدة، العبدلي، جبل القلعة، وادي الحدادة، عرجان، ضاحية الامير حسن، اسكان الصيادلة، ضاحية الفاروق، مجمع الاعمال، مدارس الاتحاد، ضاحية الامير راشد، مستشفى عبدالهادي، مستشفى فرح، جامعة العلوم الاسلامية، مستشفى الرويال، دوار المدينة الطبية، دوار الشعب، السفارة الصينية، دائرة الافتاء، وزارة الثقافة
-
-🔹 **2.75 دينار**:
-شارع مكة، دوار المشاغل، شارع عبدالله غوشة، مجمع جبر، مخيم الحسين
-
-🔹 **3 دينار**:
-الفحيص، الدوار الأول، الثاني، الثالث، الرابع، الخامس، السادس، السابع، الثامن، جبل عمان، عبدون، الرونق، الجندويل، الكرسي، ابو نصير، شفا بدران، الكوم، طريق المطار، حي نزال، جبل النزهه، جبل القصور، ضاحية الاقصى، شارع الاذاعة، جبل النظيف، مجمع المحطة، الجبل الاخضر، شارع الاستقلال، رأس العين، المهاجرين، ضاحية الياسمين، ربوة عبدون، حي الصحابة، ضاحية النخيل، الذراع الغربي، كلية لومينوس، حي الرحمانية، عريفة مول، السفارة الامريكية، مستشفى الملكة علياء، حي الصديق، حي الرونق، مستشفى الامير حمزة، مركز السكري، المصدار، قرية النخيل، شارع عرار، صافوط، البقعة
-
-🔹 **3.25 دينار**:
-جبل الزهور
-
-🔹 **3.5 دينار**:
-البيادر، وسط البلد، شارع الحرية، المقابلين، الهاشمي الشمالي، الهاشمي الجنوبي، مستشفى البشير، طبربور، مستشفى الحياة، جبل المريخ
-
-🔹 **3.6 دينار**:
-مرج الحمام
-
-🔹 **4 دينار**:
-وادي السير، الرباحية، المستندة، ماركا الجنوبية، خريبة السوق، اليادودة، البنيات، ضاحية الحاج حسن، جبل التاج، جبل الجوفة، الوحدات، وادي الرمم، العلكومية، الجويدة، ماركا الشمالية، ابو علندا، القويسمة، ام نوارة، جبل المنارة، حي عدن، كلية حطين، دوار الجمرك، دوار الشرق الاوسط، الاشرفية، ام الحيران، دوار الحمايدة، جاوا، جبل النصر، صالحية العابد، الرجيب، طارق المطار، جبل الحديد، محكمة جنوب عمان، السوق المركزي، ضاحية الامير علي، جامعة البترا، الحرشة، ام قصير، شارع الحزام، نادي السباق، مستشفى ماركا التخصصي، مستشفى ماركا العسكري، حي الارمن، حي الطفايلة، الظهير، المرقب، مدارس الحصاد التربوي، ابو السوس، جامعة عمان المفتوحة
-
-🔹 **5 دينار**:
-عراق الامير
-
-📋 **نظام الحجز (استلام أو توصيل)**:
-- الزبون يقدر يحجز طلب لموعد محدد
-- البيانات المطلوبة: الاسم، رقم الهاتف، الموعد، الطلب
-- نوع الحجز: استلام من المطعم أو توصيل
-- بعد التأكيد، أرسل [RESERVATION_GO] مع التفاصيل
-
-⚠️ **تعليمات مهمة جداً**:
-
+📋 **تعليمات مهمة**:
 1. **التمييز بين الأصناف**:
-   - سندويش زنجر = 1.5 دينار
-   - وجبة زنجر = 2 دينار (مع بطاطا وبيبسي)
-   - سندويش ديناميت = 1 دينار
-   - وجبة ديناميت = 2 دينار
+   - "ديناميت" = سندويش (1 د.أ)
+   - "وجبة ديناميت" = سندويش + بطاطا + بيبسي (2 د.أ)
+   - "زنجر" عادي = سندويش (1.5 د.أ)
+   - "وجبة زنجر" = وجبة كاملة (2 د.أ)
 
-2. **حساب التوصيل**:
-   - استخرج المنطقة من عنوان الزبون
-   - استخدم القائمة الكاملة لمناطق التوصيل
-   - إذا المنطقة مش موجودة، اسأل الزبون عن أقرب منطقة معروفة
+2. **جمع المعلومات**:
+   - الاسم، رقم الهاتف، العنوان، الأصناف
+   - استخرج المنطقة من العنوان لتحسب التوصيل
 
 3. **تأكيد الطلب**:
-   - لا ترسل للمطبخ قبل ما الزبون يؤكد صراحة
-   - كلمات التأكيد: "تم"، "أكد"، "ok"، "موافق"، "ايوا"
-   - بعد التأكيد، أرسل للمطبخ فوراً
+   - اجمع كل المعلومات
+   - اسأل الزبون للتأكيد: "تم؟" أو "أوكي؟"
+   - بس بعد ما يقول "تم" أو "ok" أو "ايوا"، أرسل للمطبخ
 
-4. **صيغة إرسال الطلب للمطبخ** (بعد التأكيد فقط):
+4. **صيغة المطبخ** (بعد التأكيد فقط):
 [KITCHEN_GO]
-🔥 **طلب جديد مؤكد**
-- **الاسم**: [اسم الزبون]
-- **الرقم**: [رقم الهاتف]
-- **نوع الطلب**: [استلام / توصيل]
-- **العنوان**: [العنوان كامل]
-- **الطلب**:
-[قائمة الأصناف مع الكميات]
-- **حساب الأكل**: [المجموع] دينار
-- **التوصيل**: [القيمة] دينار
-- **الإجمالي**: [المجموع الكلي] دينار
+🔥 طلب جديد مؤكد
+الاسم: [الاسم]
+الرقم: [رقم الهاتف]
+النوع: [توصيل/استلام]
+العنوان: [العنوان]
+الطلب: [الأصناف]
+المجموع: [السعر] د.أ
 
-⏱️ وقت التجهيز: 30-45 دقيقة
-
-**تذكر دائماً**: الدقة في التمييز بين الأصناف، واستخدام مناطق التوصيل الكاملة، وأخذ التأكيد قبل الإرسال!`;
+⏱️ وقت التجهيز: 30-45 دقيقة`;
 };
 
-/* ================= دوال مساعدة ================= */
-const extractOrderDetails = (text) => {
-  const order = {
-    items: [],
-    totalFood: 0,
-    deliveryZone: null,
-    deliveryCost: 0,
-    name: null,
-    phone: null,
-    address: null,
-    type: "delivery" // delivery or pickup
-  };
-
-  // استخراج رقم الهاتف
-  const phoneMatch = text.match(/0[7-9][0-9]{8}/);
-  if (phoneMatch) order.phone = phoneMatch[0];
-
-  // استخراج الاسم (بعد كلمة "الاسم" أو "name")
-  const nameMatch = text.match(/(?:الاسم|الاسم:|name:?)\s*([^\n]+)/i);
-  if (nameMatch) order.name = nameMatch[1].trim();
-
-  // البحث عن المنطقة
-  for (const zone of Object.keys(DELIVERY_ZONES)) {
-    if (text.includes(zone)) {
-      order.deliveryZone = zone;
-      order.deliveryCost = DELIVERY_ZONES[zone];
-      break;
-    }
-  }
-
-  // التحقق من نوع الطلب
-  if (text.includes("استلام") || text.includes("احضر") || text.includes("اجي ع الفرع") || text.includes("pickup")) {
-    order.type = "pickup";
-    order.deliveryCost = 0;
-  }
-
-  return order;
-};
-
-const calculateTotal = (order) => {
-  return order.totalFood + (order.type === "delivery" ? order.deliveryCost : 0);
-};
-
-/* ================= المحرك الرئيسي ================= */
+/* ================= المحرك الرئيسي (معدل ومصحح) ================= */
 app.post("/webhook", async (req, res) => {
   res.sendStatus(200);
   const body = req.body;
+  
   if (body.typeWebhook !== "incomingMessageReceived") return;
 
   const chatId = body.senderData?.chatId;
   if (!chatId || chatId.endsWith("@g.us")) return;
 
-  if (!SESSIONS[chatId]) SESSIONS[chatId] = { 
-    history: [], 
-    pendingOrder: null,
-    awaitingConfirmation: false 
-  };
+  // تهيئة الجلسة
+  if (!SESSIONS[chatId]) {
+    SESSIONS[chatId] = { 
+      history: [], 
+      pendingOrder: null,
+      awaitingConfirmation: false 
+    };
+  }
+  
   const session = SESSIONS[chatId];
 
-  let userMessage = body.messageData?.textMessageData?.textMessage || body.messageData?.extendedTextMessageData?.text;
+  // استخراج الرسالة
+  let userMessage = body.messageData?.textMessageData?.textMessage || 
+                    body.messageData?.extendedTextMessageData?.text;
+  
   if (!userMessage) return;
 
+  console.log(`📩 رسالة من ${chatId}: ${userMessage}`);
+
   try {
-    // التحقق من وجود تأكيد الطلب
-    const isConfirmation = /^(تم|ok|اوكي|confirm|yes|اكيد|تم التأكيد|أكد|موافق|ايوا|yes|okay)$/i.test(userMessage.trim());
+    // التحقق من التأكيد
+    const isConfirmation = /^(تم|ok|اوكي|confirm|yes|اكيد|ايوا|تمام|okay|yep|yeah)$/i.test(userMessage.trim());
     
     if (session.awaitingConfirmation && isConfirmation) {
       // تأكيد الطلب - نرسل للمطبخ
       const order = session.pendingOrder;
       
-      const kitchenMessage = `[KITCHEN_GO]
+      if (order) {
+        const kitchenMessage = `[KITCHEN_GO]
 🔥 **طلب جديد مؤكد**
 - **الاسم**: ${order.name || "غير محدد"}
 - **الرقم**: ${order.phone || "غير محدد"}
-- **نوع الطلب**: ${order.type === "pickup" ? "استلام من المطعم 🚶" : "توصيل 🚚"}
-- **العنوان**: ${order.type === "delivery" ? (order.address || order.deliveryZone || "غير محدد") : "استلام من المطعم"}
+- **النوع**: ${order.type === "pickup" ? "استلام 🚶" : "توصيل 🚚"}
+- **العنوان**: ${order.type === "delivery" ? (order.address || order.zone || "غير محدد") : "الاستلام من المطعم"}
 - **الطلب**:
-${order.items.join('\n')}
-- **حساب الأكل**: ${order.totalFood} دينار
-- **التوصيل**: ${order.type === "delivery" ? order.deliveryCost + " دينار" : "0 دينار"}
-- **الإجمالي**: ${calculateTotal(order)} دينار
+${order.items.map(item => `  • ${item}`).join('\n')}
+- **المجموع**: ${order.total} د.أ
 
-⏱️ وقت التجهيز: 30-45 دقيقة`;
+⏱️ التجهيز: 30-45 دقيقة`;
 
-      // إرسال للمطبخ
-      await sendWA(SETTINGS.KITCHEN_GROUP, kitchenMessage);
-      
-      // إرسال تأكيد للزبون
-      const confirmMessage = `تم بحمد الله يا ${order.name || "غالي"}! ✅
+        // إرسال للمطبخ
+        await sendWA(SETTINGS.KITCHEN_GROUP, kitchenMessage);
+        
+        // رد للزبون
+        const customerReply = `تم بحمد الله يا ${order.name || "غالي"}! ✅
 
-طلبك مؤكد وهو:
-${order.items.join('\n')}
-${order.type === "delivery" ? `📍 التوصيل لمنطقة: ${order.deliveryZone}\n🚚 تكلفة التوصيل: ${order.deliveryCost} دينار` : "🏢 الاستلام من المطعم"}
-
-💰 الإجمالي: ${calculateTotal(order)} دينار
-
+طلبك:
+${order.items.map(item => `• ${item}`).join('\n')}
+💰 المجموع: ${order.total} د.أ
 ⏱️ راح يجهز خلال 30-45 دقيقة
-${order.type === "delivery" ? "🚚 الدليفري في الطريق إلك" : "🏃 تستلمه من المطعم"}
 
-شكراً لثقتك بمطعم صابر جو سناك! ❤️`;
+شكراً لمطعم صابر جو سناك ❤️`;
 
-      await sendWA(chatId, confirmMessage);
-
-      // تنظيف الجلسة بعد شوية
-      setTimeout(() => { 
-        if(SESSIONS[chatId]) delete SESSIONS[chatId]; 
-      }, 3600000); // ساعة
-      
-      return;
-    }
-
-    // إرسال الرد من OpenAI
-    const aiResponse = await axios.post("https://api.openai.com/v1/chat/completions", {
-      model: "gpt-4",
-      messages: [
-        { role: "system", content: getSystemPrompt() },
-        ...session.history.slice(-10),
-        { role: "user", content: userMessage }
-      ],
-      temperature: 0.7
-    }, { 
-      headers: { 
-        "Authorization": `Bearer ${SETTINGS.OPENAI_KEY}`,
-        "Content-Type": "application/json"
-      } 
-    });
-
-    let reply = aiResponse.data.choices[0].message.content;
-
-    // التحقق إذا الرد فيه طلب تأكيد
-    if (reply.includes("[NEED_CONFIRMATION]")) {
-      session.awaitingConfirmation = true;
-      // استخراج تفاصيل الطلب من الرد
-      const orderMatch = reply.match(/\[ORDER_DETAILS\]([\s\S]*?)\[\/ORDER_DETAILS\]/);
-      if (orderMatch) {
-        session.pendingOrder = JSON.parse(orderMatch[1]);
+        await sendWA(chatId, customerReply);
+        
+        // تنظيف الجلسة
+        delete SESSIONS[chatId];
+        return;
       }
-      reply = reply.replace(/\[NEED_CONFIRMATION\].*?\[\/ORDER_DETAILS\]/s, "");
     }
 
-    // إرسال الرد للزبون
-    await sendWA(chatId, reply);
-    
-    // حفظ المحادثة
-    session.history.push(
-      { role: "user", content: userMessage },
-      { role: "assistant", content: reply }
+    // إرسال لـ OpenAI - استخدم gpt-3.5-turbo للأمان والسرعة
+    const aiResponse = await axios.post(
+      "https://api.openai.com/v1/chat/completions",
+      {
+        model: "gpt-3.5-turbo", // تغيير لـ gpt-3.5-turbo (أسرع وأرخص)
+        messages: [
+          { role: "system", content: getSystemPrompt() },
+          ...session.history.slice(-6), // آخر 6 رسائل فقط
+          { role: "user", content: userMessage }
+        ],
+        temperature: 0.7,
+        max_tokens: 500
+      },
+      {
+        headers: {
+          "Authorization": `Bearer ${SETTINGS.OPENAI_KEY}`,
+          "Content-Type": "application/json"
+        },
+        timeout: 30000 // 30 ثانية timeout
+      }
     );
 
+    let reply = aiResponse.data.choices[0].message.content;
+    
+    // تحقق إذا في كود مطبخ في الرد
+    if (reply.includes("[KITCHEN_GO]")) {
+      const parts = reply.split("[KITCHEN_GO]");
+      const customerMsg = parts[0].trim();
+      const kitchenMsg = parts[1].trim();
+      
+      // استخراج معلومات الطلب من الرد
+      const orderMatch = kitchenMsg.match(/الاسم:? ([^\n]+)/i);
+      const phoneMatch = kitchenMsg.match(/الرقم:? ([0-9]{10})/);
+      const zoneMatch = Object.keys(DELIVERY_ZONES).find(zone => kitchenMsg.includes(zone));
+      
+      // حفظ في الجلسة
+      session.pendingOrder = {
+        name: orderMatch ? orderMatch[1].trim() : "زبون",
+        phone: phoneMatch ? phoneMatch[1] : "غير محدد",
+        zone: zoneMatch || "غير محدد",
+        items: kitchenMsg.split('\n').filter(line => line.includes('•') || line.includes('-')),
+        total: kitchenMsg.match(/المجموع:? ([0-9.]+)/)?.[1] || "0",
+        type: kitchenMsg.includes("استلام") ? "pickup" : "delivery"
+      };
+      
+      session.awaitingConfirmation = true;
+      
+      // طلب تأكيد من الزبون
+      const confirmMsg = `${customerMsg}\n\nهل البيانات صحيحة؟ أكتب "تم" للتأكيد ✅`;
+      await sendWA(chatId, confirmMsg);
+      
+      // حفظ المحادثة
+      session.history.push(
+        { role: "user", content: userMessage },
+        { role: "assistant", content: confirmMsg }
+      );
+      
+    } else {
+      // رد عادي
+      await sendWA(chatId, reply);
+      
+      // حفظ المحادثة
+      session.history.push(
+        { role: "user", content: userMessage },
+        { role: "assistant", content: reply }
+      );
+    }
+
   } catch (err) {
-    console.error("Error:", err.message);
-    await sendWA(chatId, "عذراً يا غالي، صار عندي عطل فني. جرب ترسل الرسالة مرة ثانية خلال دقيقتين 🙏");
+    console.error("❌ خطأ:", err.message);
+    
+    // رسالة خطأ ودية
+    const errorMessage = "عذراً يا غالي، صار عندي عطل فني. جرب ترسل الرسالة مرة ثانية خلال دقيقتين 🙏";
+    await sendWA(chatId, errorMessage);
   }
 });
 
+// دالة الإرسال مع معالجة الأخطاء
 async function sendWA(chatId, message) {
   try {
-    await axios.post(`${SETTINGS.API_URL}/sendMessage/${SETTINGS.GREEN_TOKEN}`, { 
-      chatId, 
-      message 
-    });
+    await axios.post(
+      `${SETTINGS.API_URL}/sendMessage/${SETTINGS.GREEN_TOKEN}`,
+      { chatId, message },
+      { timeout: 10000 }
+    );
+    console.log(`✅ تم الإرسال إلى ${chatId}`);
   } catch (err) {
-    console.error("Send error:", err.message);
+    console.error("❌ فشل الإرسال:", err.message);
   }
 }
 
-app.listen(3000, () => console.log("🤖 Saber Bot is Running! مطعم صابر جو سناك جاهز للطلبات"));
+app.listen(3000, () => {
+  console.log("🤖 صابر جو سناك شغال!");
+  console.log("⏰", new Date().toLocaleString("ar-JO"));
+});
