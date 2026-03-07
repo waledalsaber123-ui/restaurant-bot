@@ -30,7 +30,15 @@ const getSystemPrompt = () => {
 1. المرحلة الأولى: عند اكتمال الأصناف، أرسل للزبون "فاتورة مبدئية" بهذا الشكل:
    "طلبك هو: [الأصناف] بقيمة [السعر].
    أكدلي عشان آخذ منك (الاسم والرقم والعنوان) ونبعته للمطبخ؟"
+⚠️ **نظام الفاتورة والتأكيد (قواعد صارمة)**:
+1. **قبل طلب البيانات**: بمجرد تحديد الطلب والمنطقة، يجب إرسال "فاتورة تفصيلية" للزبون:
+   - مجموع الأكل: [حساب المجموع]
+   - أجور التوصيل: [حسب المنطقة]
+   - الإجمالي الكلي: [المجموع + التوصيل]
+   ثم اسأله: "أكدلي الاسم ورقم التلفون عشان نعتمد الطلب؟"
 
+2. **قاعدة [KITCHEN_GO]**: ممنوع نهائياً استخدام هذا الكود إلا إذا كتب الزبون اسمه ورقم هاتفه (يبدأ بـ 07).
+3. **التوصيل**: التزم بجدول الأسعار (1.5د، 2د، 2.5د، 3د، 3.5د، 4د) حسب المنطقة المذكورة سابقاً.
 2. المرحلة الثانية (التأكيد النهائي): لا تضع [KITCHEN_GO] إلا بعد الحصول على الاسم والرقم. 
    يجب أن يكون نص الرد بعد [KITCHEN_GO] مطابقاً لهذا التنسيق تماماً:
    🔔 طلب جديد!
@@ -150,9 +158,44 @@ if (!SESSIONS[chatId]) {
     ],
     temperature: 0 // صفر لضمان الدقة ومنع الاجتهاد
 }, { headers: { Authorization: `Bearer ${SETTINGS.OPENAI_KEY}` } });
+
     let reply = aiResponse.data.choices[0].message.content;
 let reply = aiResponse.data.choices[0].message.content;
+/* --- استبدل المنطقة التي تلي تعريف reply بهذا الكود --- */
+    
+    let reply = aiResponse.data.choices[0].message.content;
 
+    if (reply.includes("[KITCHEN_GO]")) {
+        // 1. الفحص الذكي: هل توجد بيانات حقيقية (اسم ورقم هاتف أردني)؟
+        const hasPhone = /(07[789]\d{7})/.test(reply) || reply.includes("07");
+        const hasName = reply.includes("الاسم:") && !reply.includes("[اسم الزبون]") && reply.split("الاسم:")[1].trim().length > 2;
+
+        if (!hasPhone || !hasName) {
+            // إذا حاول البوت الإرسال والبيانات ناقصة، نغير الرد لطلب البيانات
+            reply = "على راسي يا غالي، بس يا ريت تبعتلي (الاسم ورقم التلفون) عشان أقدر أبعت الطلب للمطبخ ويجهز بأسرع وقت.";
+        } else {
+            // 2. إذا البيانات كاملة -> يتم إرسال الجزء الخاص بالمطبخ فقط للجروب
+            const orderParts = reply.split("[KITCHEN_GO]");
+            const kitchenOrder = orderParts[1].trim(); 
+
+            // إرسال لجروب المطبخ
+            await sendWA(SETTINGS.KITCHEN_GROUP, `🔔 *طلب جديد مؤكد*:\n${kitchenOrder}`);
+            
+            // إرسال تأكيد نهائي للزبون
+            await sendWA(chatId, "أبشر، طلبك اعتمدناه وصار بالمطبخ! نورت مطعم صابر 🙏");
+
+            // حفظ في الذاكرة ومسح الجلسة بعد 24 ساعة
+            session.history.push({ role: "user", content: userMessage }, { role: "assistant", content: reply });
+            setTimeout(() => { if (SESSIONS[chatId]) delete SESSIONS[chatId]; }, 86400000);
+            return; // ننهي الدالة هنا عشان ما يرجع يبعت reply مرة ثانية بالأسفل
+        }
+    }
+
+    // إرسال الرد العادي للزبون (سواء كان الفاتورة المبدئية أو طلب البيانات)
+    await sendWA(chatId, reply);
+    session.history.push({ role: "user", content: userMessage }, { role: "assistant", content: reply });
+    
+    /* --- نهاية التعديل --- */
     // --- بداية التعديل الجديد ---
     if (reply.includes("[KITCHEN_GO]")) {
         // فحص وجود البيانات الأساسية (الاسم والرقم الأردني)
