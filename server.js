@@ -361,25 +361,25 @@ ${order.items.map(item => `• ${item}`).join('\n')}
       }
     }
 
-    // إرسال لـ OpenAI - استخدم gpt-3.5-turbo للأمان والسرعة
+ // إرسال لـ OpenAI - استخدام gpt-4o-mini أسرع وأدق للمنيو الطويل
     const aiResponse = await axios.post(
       "https://api.openai.com/v1/chat/completions",
       {
-        model: "gpt-3.5-turbo", // تغيير لـ gpt-3.5-turbo (أسرع وأرخص)
+        model: "gpt-4o-mini", // التغيير هنا
         messages: [
           { role: "system", content: getSystemPrompt() },
-          ...session.history.slice(-6), // آخر 6 رسائل فقط
+          ...session.history.slice(-10), // زدنا الذاكرة شوي لـ 10 رسائل
           { role: "user", content: userMessage }
         ],
-        temperature: 0.7,
-        max_tokens: 500
+        temperature: 0, // خلّيها 0 عشان يكون دقيق بالأسعار وما يمرر عروض من عنده
+        max_tokens: 800
       },
       {
         headers: {
           "Authorization": `Bearer ${SETTINGS.OPENAI_KEY}`,
           "Content-Type": "application/json"
         },
-        timeout: 30000 // 30 ثانية timeout
+        timeout: 40000 // رفعنا الوقت لـ 40 ثانية عشان ما يعطي عطل فني
       }
     );
 
