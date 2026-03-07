@@ -10,7 +10,7 @@ const SETTINGS = {
     ID_INSTANCE: process.env.ID_INSTANCE,
     KITCHEN_GROUP: process.env.KITCHEN_GROUP || "120363407952234395@g.us",
     API_URL: `https://7103.api.greenapi.com/waInstance${process.env.ID_INSTANCE}`,
-    SYSTEM_PROMPT: process.env.SYSTEM_PROMPT // تأكد إنك حطيت البرومبت الجديد هون
+    SYSTEM_PROMPT: process.env.SYSTEM_PROMPT
 };
 
 const SESSIONS = {};
@@ -18,67 +18,66 @@ const SESSIONS = {};
 app.post("/webhook", async (req, res) => {
     res.sendStatus(200);
     const body = req.body;
-
-    const allowedTypes = ["incomingMessageReceived", "incomingFileMessageReceived"];
-    if (!allowedTypes.includes(body.typeWebhook)) return;
+    if (!["incomingMessageReceived", "incomingFileMessageReceived"].includes(body.typeWebhook)) return;
 
     const chatId = body.senderData?.chatId;
     if (!chatId || chatId.endsWith("@g.us")) return;
 
-    if (!SESSIONS[chatId]) SESSIONS[chatId] = { history: [], lastKitchenMsg: null };
+    if (!SESSIONS[chatId]) SESSIONS[chatId] = { history: [], lastOrder: null };
     const session = SESSIONS[chatId];
 
-    let userParts = [];
+    let userMessage = body.messageData?.textMessageData?.textMessage || body.messageData?.extendedTextMessageData?.text || "";
+    let mediaUrl = body.messageData?.fileMessageData?.downloadUrl || null;
 
-    // 1. استخراج النص
-    let text = body.messageData?.textMessageData?.textMessage || body.messageData?.extendedTextMessageData?.text;
-    if (text) userParts.push({ text: text });
-
-    // 2. معالجة الفويس والصور (حل مشكلة صورة 11)
-    if (body.typeWebhook === "incomingFileMessageReceived") {
-        const fileUrl = body.messageData?.fileMessageData?.downloadUrl;
-        if (fileUrl) {
-            // نمرر الرابط كنص إرشادي للموديل ليقوم بتحليله
-            userParts.push({ 
-                text: `[نظام صابر]: الزبون أرسل ميديا (فويس أو صورة) هنا: ${fileUrl}. اسمعها أو شاهدها ورد بناءً على المنيو والموقع اللي عندك.` 
-            });
-        }
+    // حل مشكلة الفويس (صورة 13)
+    let promptContent = userMessage;
+    if (mediaUrl) {
+        promptContent += ` [نظام صابر: الزبون أرسل فويس أو صورة هنا: ${mediaUrl}. حللها ورد عليه بناءً على المنيو.]`;
     }
 
-    if (userParts.length === 0) return;
-
     try {
-        // حقن البرومبت في كل طلب (حل مشكلة صورة 12 - الموقع)
+        // الرد السريع على الموقع (صورة 14) لتجنب التعليق
+        if (userMessage.includes("الموقع") || userMessage.includes("لوكيشن") || userMessage.includes("وينكم")) {
+            await sendWA(chatId, "موقعنا يا غالي: عمان - شارع الجامعة - طلوع هافانا 📍\nتفضل اللوكيشن: https://maps.app.goo.gl/NdFQY67DEnsWQdKZ9");
+            return;
+        }
+
+        // إرسال لـ Gemini
         const response = await axios.post(
             `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${SETTINGS.GEMINI_KEY}`,
             {
                 contents: [
-                    { role: "user", parts: [{ text: SETTINGS.SYSTEM_PROMPT }] }, // ضمان رؤية الموقع دائماً
+                    { role: "user", parts: [{ text: SETTINGS.SYSTEM_PROMPT }] },
                     ...session.history,
-                    { role: "user", parts: userParts }
+                    { role: "user", parts: [{ text: promptContent }] }
                 ]
-            },
-            { timeout: 60000 } // زيادة وقت الانتظار للفويسات
+            }, { timeout: 30000 }
         );
 
         let reply = response.data.candidates[0].content.parts[0].text;
 
+        // منطق المطبخ (صورة 3)
         if (reply.includes("[KITCHEN_GO]")) {
-            session.lastKitchenMsg = reply.split("[KITCHEN_GO]")[1].trim();
-            await sendWA(chatId, `${reply.split("[KITCHEN_GO]")[0].trim()}\n\nأكتب "تم" للتأكيد ✅`);
+            session.lastOrder = reply.split("[KITCHEN_GO]")[1].trim();
+            await sendWA(chatId, `${reply.split("[KITCHEN_GO]")[0].trim()}\n\nأكتب "تم" للتأكيد يا غالي ✅`);
+        } else if (userMessage === "تم" && session.lastOrder) {
+            await sendWA(SETTINGS.KITCHEN_GROUP, session.lastOrder);
+            await sendWA(chatId, "أبشر، طلبك صار بالمطبخ! نورت صابر جو سناك 🙏");
+            delete SESSIONS[chatId];
         } else {
             await sendWA(chatId, reply);
         }
 
-        // حفظ التاريخ لتجنب نسيان الطلب (صورة 10)
-        session.history.push({ role: "user", parts: userParts });
+        session.history.push({ role: "user", parts: [{ text: promptContent }] });
         session.history.push({ role: "model", parts: [{ text: reply }] });
-        if (session.history.length > 10) session.history.splice(0, 2);
+        if (session.history.length > 8) session.history.splice(0, 2);
 
     } catch (err) {
-        console.error("❌ Error Details:", err.response?.data || err.message);
-        // رسالة تنبيه للزبون بدل "السستم معلق"
-        await sendWA(chatId, "أبشر يا غالي، بس جرب ابعث رسالتك كمان مرة، كان في ضغط عالخط 🙏");
+        console.error("Error:", err.message);
+        // تجنب رسالة "السستم معلق" المتكررة
+        if (!userMessage.includes("الموقع")) {
+            await sendWA(chatId, "على راسي يا غالي، ارجع ابعث رسالتك كمان مرة صار عندي ضغط عالي 🙏");
+        }
     }
 });
 
@@ -88,4 +87,4 @@ async function sendWA(chatId, message) {
     } catch (e) {}
 }
 
-app.listen(3000, () => console.log("🚀 Saber Smart Engine Updated!"));
+app.listen(3000);
