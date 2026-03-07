@@ -70,7 +70,7 @@ const getSystemPrompt = () => {
 };
 
 /* ================= المحرك الرئيسي ================= */
-/* ================= المحرك الرئيسي - نسخة إصلاح الاستلام والطلب الفارغ ================= */
+/* ================= المحرك الرئيسي - نسخة منع الرسائل الفارغة للمطبخ ================= */
 app.post("/webhook", async (req, res) => {
   res.sendStatus(200);
   const body = req.body;
@@ -93,61 +93,66 @@ app.post("/webhook", async (req, res) => {
       model: "gpt-4o",
       messages: [
         { role: "system", content: getSystemPrompt() },
-        ...session.history.slice(-15),
+        ...session.history.slice(-20),
         { role: "user", content: userMessage }
       ],
-      temperature: 0
+      temperature: 0 
     }, { headers: { Authorization: `Bearer ${SETTINGS.OPENAI_KEY}` } });
 
     let reply = aiResponse.data.choices[0].message.content;
 
-    // 1. التقاط البيانات فور ظهور [KITCHEN_GO] لأول مرة
+    // 1. منطق استخراج الفاتورة المطور [KITCHEN_GO]
     if (reply.includes("[KITCHEN_GO]")) {
+        // إذا الكلمة موجودة، بنقسم النص وبناخد اللي بعدها
         const parts = reply.split("[KITCHEN_GO]");
-        session.pendingOrderData = parts[1].trim(); 
-        reply = parts[0].trim();
+        const orderContent = parts[1] ? parts[1].trim() : "";
         
-        // تحديد نوع الطلب وحفظه في السشن
-        if (reply.includes("استلام") || userMessage.includes("استلام")) {
+        // حماية: إذا اللي بعد الكلمة فاضي، بناخد الرد كامل قبل الكلمة كاحتياط
+        session.pendingOrderData = orderContent || parts[0].trim();
+        
+        // النص اللي رح يروح للزبون (بدون كود المطبخ)
+        reply = parts[0].trim();
+
+        // تحديد نوع الطلب
+        if (reply.includes("استلام") || userMessage.includes("استلام") || reply.includes("موقعنا")) {
             session.orderType = "pickup";
         } else {
             session.orderType = "delivery";
         }
     }
 
-    // فحص الهاتف والاسم
     const phoneRegex = /(07[789]\d{7})/;
-    const hasPhone = phoneRegex.test(userMessage) || phoneRegex.test(reply) || session.history.some(m => phoneRegex.test(m.content));
-    
-    // كلمات التأكيد الموسعة
-    const confirmationWords = ["اعتمد", "نعم", "اوكي", "أكيد", "اه", "يلا", "تم", "ماشي", "توكل", "ثبت", "هات", "انجز", "توصيل", "أوك", "اوك", "استلام"];
+    const hasPhone = phoneRegex.test(userMessage) || session.history.some(m => phoneRegex.test(m.content));
+    const confirmationWords = ["اعتمد", "نعم", "اوكي", "أكيد", "اه", "يلا", "تم", "ماشي", "توكل", "ثبت", "هات", "انجز", "توصيل", "أوك", "اوك", "استلام", "جهاز", "موافق"];
     const isConfirmed = confirmationWords.some(word => userMessage.toLowerCase().includes(word));
 
-    // 2. التنفيذ الفعلي للإرسال
+    // 2. الإرسال للمطبخ مع حماية ضد الرسائل الفارغة
     if (session.pendingOrderData) {
       
-      // إذا كان توصيل وما في رقم، بنطلب الرقم
+      const isInstantPickup = session.orderType === "pickup" && (userMessage.includes("جهاز") || userMessage.includes("دقايق") || userMessage.includes("بوصل"));
+
       if (session.orderType === "delivery" && !hasPhone) {
-        reply = "على راسي يا نشمي، بس ابعتلي (الاسم ورقم التلفون) عشان أثبت الطلب وأرميه عالمطبخ فوراً.";
+        reply = "على راسي يا غالي، بس ابعتلي (الاسم ورقم التلفون) عشان أثبت الطلب وأرميه عالمطبخ.";
       } 
-      // إرسال للمطبخ إذا تأكد الطلب أو توفرت البيانات
-      else if (isConfirmed || (hasPhone && session.waitingConfirmation)) {
+      else if (isConfirmed || isInstantPickup || (hasPhone && session.waitingConfirmation)) {
         
-        let kitchenHeader = session.orderType === "pickup" ? "🏪 طلب استلام من المطعم:\n" : "✅ طلب توصيل جديد:\n";
+        let kitchenHeader = session.orderType === "pickup" ? "🏪 **طلب استلام**:\n" : "✅ **طلب توصيل مؤكد**:\n";
         
-        // إرسال البيانات المحفوظة مسبقاً (عشان ما تطلع فاضية)
-        await sendWA(SETTINGS.KITCHEN_GROUP, kitchenHeader + session.pendingOrderData);
+        // التأكد 100% إن البيانات مش فاضية قبل الإرسال
+        const finalOrderText = session.pendingOrderData || "خطأ: لم يتم استخراج تفاصيل الطلب، يرجى مراجعة المحادثة.";
         
-        reply = "أبشر، طلبك اعتمدناه وصار بالمطبخ! نورت مطعم صابر 🙏";
+        await sendWA(SETTINGS.KITCHEN_GROUP, kitchenHeader + finalOrderText);
         
-        // تصفير الجلسة
+        await sendWA(chatId, "أبشر، طلبك اعتمدناه وصار بالمطبخ! نورت مطعم صابر 🙏");
+        
         session.waitingConfirmation = false;
         session.pendingOrderData = null;
+        return; 
       } 
       else {
         session.waitingConfirmation = true;
         if (!reply.includes("أعتمد")) {
-            reply += "\n\nأعتمد الطلب وأبعته للمطبخ يا نشمي؟";
+            reply += "\n\nأعتمد الطلب يا نشمي؟";
         }
       }
     }
@@ -157,7 +162,6 @@ app.post("/webhook", async (req, res) => {
 
   } catch (err) { console.error("Error:", err.message); }
 });
-
 async function sendWA(chatId, message) {
   try { await axios.post(`${SETTINGS.API_URL}/sendMessage/${SETTINGS.GREEN_TOKEN}`, { chatId, message }); } catch (e) {}
 }
