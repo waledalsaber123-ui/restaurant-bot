@@ -5,108 +5,90 @@ const app = express();
 app.use(express.json());
 
 const SETTINGS = {
-    OPENAI_KEY: process.env.OPENAI_KEY,
+    GEMINI_KEY: process.env.GEMINI_API_KEY,
     GREEN_TOKEN: process.env.GREEN_TOKEN,
     ID_INSTANCE: process.env.ID_INSTANCE,
     KITCHEN_GROUP: process.env.KITCHEN_GROUP || "120363407952234395@g.us",
     API_URL: `https://7103.api.greenapi.com/waInstance${process.env.ID_INSTANCE}`,
-    SYSTEM_PROMPT: process.env.SYSTEM_PROMPT // سحب البرومبت من البيئة
+    SYSTEM_PROMPT: process.env.SYSTEM_PROMPT
 };
 
 const SESSIONS = {};
 
-// دالة تنظيف الجلسات القديمة
-setInterval(() => {
-    const now = Date.now();
-    for (const id in SESSIONS) {
-        if (now - SESSIONS[id].lastSeen > 3600000) delete SESSIONS[id]; 
-    }
-}, 600000);
-
 app.post("/webhook", async (req, res) => {
     res.sendStatus(200);
     const body = req.body;
-    if (body.typeWebhook !== "incomingMessageReceived") return;
+
+    // دعم الرسائل النصية، الصور، والصوتيات
+    const allowedTypes = ["incomingMessageReceived", "incomingFileMessageReceived"];
+    if (!allowedTypes.includes(body.typeWebhook)) return;
 
     const chatId = body.senderData?.chatId;
     if (!chatId || chatId.endsWith("@g.us")) return;
 
-    // تهيئة الجلسة
     if (!SESSIONS[chatId]) {
-        SESSIONS[chatId] = { 
-            history: [], 
-            pendingOrder: null, 
-            awaitingConfirmation: false,
-            lastSeen: Date.now() 
-        };
+        SESSIONS[chatId] = { history: [], pendingOrder: {} };
     }
     const session = SESSIONS[chatId];
-    session.lastSeen = Date.now();
 
-    let userMessage = body.messageData?.textMessageData?.textMessage || 
-                      body.messageData?.extendedTextMessageData?.text;
-    if (!userMessage) return;
+    let userContent = [];
+    
+    // 1. التعامل مع النصوص
+    let text = body.messageData?.textMessageData?.textMessage || body.messageData?.extendedTextMessageData?.text;
+    if (text) userContent.push({ type: "text", text: text });
 
-    // منطق التحويل لـ "استلام" يدوياً لضمان الدقة قبل الـ AI
-    if (session.pendingOrder && (userMessage.includes("استلام") || userMessage.includes("بالمحل"))) {
-        session.pendingOrder.type = "pickup";
-        session.pendingOrder.deliveryFee = 0;
-        session.pendingOrder.total = session.pendingOrder.subtotal;
+    // 2. التعامل مع الصور والفويسات (Media)
+    if (body.typeWebhook === "incomingFileMessageReceived") {
+        const fileUrl = body.messageData?.fileMessageData?.downloadUrl;
+        if (fileUrl) {
+            userContent.push({ type: "image_url", image_url: { url: fileUrl } }); // للصور
+            // ملاحظة: للفويسات، يفضل استخدام مكتبة تحويل الصوت لنص أو تمرير الرابط إذا كان الموديل يدعمها مباشرة
+        }
     }
 
+    if (userContent.length === 0) return;
+
     try {
-        // التحقق من كلمة التأكيد "تم"
-        const isConfirmation = /^(تم|ok|اوكي|تمام|ايوا|confirm)$/i.test(userMessage.trim());
-        
-        if (session.awaitingConfirmation && isConfirmation && session.lastKitchenMsg) {
+        // منطق التأكيد السريع
+        if (text && /^(تم|ok|تمام|اوكي)$/i.test(text.trim()) && session.lastKitchenMsg) {
             await sendWA(SETTINGS.KITCHEN_GROUP, session.lastKitchenMsg);
-            await sendWA(chatId, "أبشر يا غالي، طلبك اعتمدناه وصار بالمطبخ! نورت مطعم صابر 🙏");
+            await sendWA(chatId, "أبشر يا غالي، طلبك صار بالمطبخ! نورت مطعم صابر 🙏");
             delete SESSIONS[chatId];
             return;
         }
 
-        // إرسال لـ OpenAI
-        const aiResponse = await axios.post("https://api.openai.com/v1/chat/completions", {
-            model: "gpt-4o-mini",
-            messages: [
-                { role: "system", content: SETTINGS.SYSTEM_PROMPT },
-                ...session.history.slice(-10),
-                { role: "user", content: userMessage }
-            ],
-            temperature: 0
-        }, { 
-            headers: { Authorization: `Bearer ${SETTINGS.OPENAI_KEY}` },
-            timeout: 30000 
-        });
+        // إرسال لـ Gemini (المندوب الذكي)
+        const response = await axios.post(
+            `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${SETTINGS.GEMINI_KEY}`,
+            {
+                contents: [
+                    { role: "user", parts: [{ text: SETTINGS.SYSTEM_PROMPT }] },
+                    ...session.history,
+                    { role: "user", parts: userContent }
+                ]
+            }
+        );
 
-        let reply = aiResponse.data.choices[0].message.content;
+        let reply = response.data.candidates[0].content.parts[0].text;
 
-        // معالجة كود المطبخ إذا ظهر في رد الـ AI
+        // معالجة كود المطبخ
         if (reply.includes("[KITCHEN_GO]")) {
             const parts = reply.split("[KITCHEN_GO]");
-            const customerPart = parts[0].trim();
-            const kitchenPart = parts[1].trim();
-
-            session.lastKitchenMsg = kitchenPart;
+            session.lastKitchenMsg = parts[1].trim();
             session.awaitingConfirmation = true;
-
-            // استخراج بيانات الطلب للذاكرة
-            session.pendingOrder = {
-                subtotal: kitchenPart.match(/الحساب:?\s*([0-9.]+)/)?.[1] || "0",
-                total: kitchenPart.match(/المجموع:?\s*([0-9.]+)/)?.[1] || "0",
-                type: kitchenPart.includes("استلام") ? "pickup" : "delivery"
-            };
-
-            await sendWA(chatId, `${customerPart}\n\nأكتب "تم" للتأكيد ✅`);
+            await sendWA(chatId, `${parts[0].trim()}\n\nأكتب "تم" للتأكيد ✅`);
         } else {
             await sendWA(chatId, reply);
         }
 
-        session.history.push({ role: "user", content: userMessage }, { role: "assistant", content: reply });
+        // حفظ التاريخ
+        session.history.push({ role: "user", parts: userContent });
+        session.history.push({ role: "model", parts: [{ text: reply }] });
+        if (session.history.length > 12) session.history.splice(0, 2);
 
     } catch (err) {
         console.error("❌ Error:", err.message);
-        await sendWA(chatId, "على راسي يا غالي، بس صار عندي ضغط صغير. ارجع ابعث رسالتك كمان مرة 🙏");
+        await sendWA(chatId, "على راسي يا غالي، بس السستم معلق شوي. ارجع ابعث رسالتك كمان دقيقة 🙏");
     }
 });
 
@@ -116,4 +98,4 @@ async function sendWA(chatId, message) {
     } catch (e) {}
 }
 
-app.listen(process.env.PORT || 3000, () => console.log("🚀 Saber Engine is Running!"));
+app.listen(3000, () => console.log("🚀 صابر الذكي شغال (نصوص + صور)!"));
