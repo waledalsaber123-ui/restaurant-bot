@@ -70,6 +70,7 @@ const getSystemPrompt = () => {
 };
 
 /* ================= المحرك الرئيسي المصلح ================= */
+/* ================= المحرك الرئيسي المصلح 100% ================= */
 app.post("/webhook", async (req, res) => {
   res.sendStatus(200);
   const body = req.body;
@@ -88,32 +89,42 @@ app.post("/webhook", async (req, res) => {
     const aiResponse = await axios.post("https://api.openai.com/v1/chat/completions", {
       model: "gpt-4o",
       messages: [
-        { role: "system", content: getSystemPrompt() },
-        ...session.history.slice(-30), // يحفظ لغاية 30 رسالة كما طلبت
+        { role: "system", content: getSystemPrompt() + "\n⚠️ ملاحظة هامة: إذا الزبون غير رأيه من استلام لتوصيل، احسب السعر الجديد فوراً وأرسل [KITCHEN_GO] مع البيانات المحدثة." },
+        ...session.history.slice(-30), // حفظ الذاكرة اللي طلبتها
         { role: "user", content: userMessage }
       ],
-      temperature: 0.3
+      temperature: 0
     }, { headers: { Authorization: `Bearer ${SETTINGS.OPENAI_KEY}` } });
 
     let reply = aiResponse.data.choices[0].message.content;
 
+    // فحص إذا الرد يحتوي على كود المطبخ
     if (reply.includes("[KITCHEN_GO]")) {
       const parts = reply.split("[KITCHEN_GO]");
       const clientMsg = parts[0].trim();
       const kitchenMsg = parts[1].trim();
 
-      // إرسال للمطبخ
-      await sendWA(SETTINGS.KITCHEN_GROUP, `🔥 طلب جديد للمطبخ:\n${kitchenMsg}`);
-      // إرسال للزبون
-      await sendWA(chatId, clientMsg || "أبشر يا غالي، طلبك صار بالمطبخ وع عيني!");
-      
-      // مسح الجلسة لتبدأ من جديد بعد 24 ساعة أو عند الطلب القادم
-      setTimeout(() => { delete SESSIONS[chatId]; }, 86400000);
-    } else {
-      await sendWA(chatId, reply);
-      session.history.push({ role: "user", content: userMessage }, { role: "assistant", content: reply });
+      // التحقق من وجود الاسم والرقم في رسالة المطبخ
+      const hasPhone = /07[789]\d{7}/.test(kitchenMsg);
+      if (hasPhone) {
+          // إرسال للمطبخ
+          await sendWA(SETTINGS.KITCHEN_GROUP, `🔥 طلب جديد للمطبخ:\n${kitchenMsg}`);
+          // إرسال تأكيد نهائي للزبون
+          await sendWA(chatId, clientMsg || "أبشر يا غالي، عدلنا الطلب وصار بالمطبخ!");
+          
+          // تأخير مسح الجلسة لضمان بقاء المعلومات لفترة
+          setTimeout(() => { if(SESSIONS[chatId]) delete SESSIONS[chatId]; }, 86400000); 
+          return;
+      }
     }
-  } catch (err) { console.error("Error:", err.message); }
+
+    // إذا لم يرسل الكود، نرسل الرد الطبيعي ونحفظ التاريخ
+    await sendWA(chatId, reply);
+    session.history.push({ role: "user", content: userMessage }, { role: "assistant", content: reply });
+
+  } catch (err) {
+    console.error("Error:", err.message);
+  }
 });
 
 async function sendWA(chatId, message) {
