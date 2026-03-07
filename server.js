@@ -7,21 +7,21 @@ import path from "path";
 const app = express();
 app.use(express.json());
 
-/* ================= الإعدادات من Environment Variables ================= */
+/* ================= الإعدادات ================= */
 const SETTINGS = {
   OPENAI_KEY: process.env.OPENAI_KEY,
   GREEN_TOKEN: process.env.GREEN_TOKEN,
   ID_INSTANCE: process.env.ID_INSTANCE,
   KITCHEN_GROUP: process.env.KITCHEN_GROUP || "120363407952234395@g.us",
   API_URL: `https://7103.api.greenapi.com/waInstance${process.env.ID_INSTANCE}`,
-  // سحب المنيو والتوصيل من البيئة
   DYNAMIC_MENU: process.env.RESTAURANT_MENU, 
   DYNAMIC_DELIVERY: process.env.DELIVERY_PRICES
 };
 
 const SESSIONS = {};
+const PROCESSED_MESSAGES = new Set(); // لتخزين IDs الرسائل المعالجة مؤقتاً
 
-/* ================= بناء نظام البرومبت الديناميكي ================= */
+/* ================= بناء نظام البرومبت ================= */
 const getSystemPrompt = () => {
   return `
 أنت "صابر". موظف استقبال لمطعم شاورما. ردودك قصيرة، أردنية، ومباشرة.
@@ -37,14 +37,29 @@ ${SETTINGS.DYNAMIC_DELIVERY}
 1. لا ترد على الجروبات نهائياً.
 2. تذكر طلبات العميل السابقة ولا تكرر الأسئلة.
 3. اطلب الاسم والرقم فقط عند نهاية الطلب.
-4. استخدم الأسعار المذكورة أعلاه بدقة ولا تعطِ أسعاراً "تقريبية".
+4. استخدم الأسعار المذكورة أعلاه بدقة.
 5. أرسل [KITCHEN_GO] فقط عند التأكيد النهائي.
 `;
 };
 
 app.post("/webhook", async (req, res) => {
+  // 1. الرد الفوري لمنع إعادة الإرسال من Green API
   res.sendStatus(200);
+
   const body = req.body;
+  const messageId = body.idMessage;
+
+  // 2. فلترة: التأكد أنها رسالة واردة فقط وتجاهل الرسائل الصادرة من البوت
+  const isIncoming = body.typeWebhook === "incomingMessageReceived" || body.typeWebhook === "incomingFileMessageReceived";
+  if (!isIncoming) return;
+
+  // 3. منع التكرار: إذا تمت معالجة هذا الـ ID مسبقاً، اخرج
+  if (PROCESSED_MESSAGES.has(messageId)) return;
+  PROCESSED_MESSAGES.add(messageId);
+  
+  // تنظيف الذاكرة كل فترة (اختياري)
+  setTimeout(() => PROCESSED_MESSAGES.delete(messageId), 60000);
+
   let chatId = body.senderData?.chatId;
 
   // منع الرد في المجموعات
@@ -55,6 +70,7 @@ app.post("/webhook", async (req, res) => {
 
   let incomingText = "";
 
+  // استخراج النص حسب نوع الرسالة
   if (body.typeWebhook === "incomingFileMessageReceived" && body.messageData?.fileMessageData?.mimeType?.includes("audio")) {
     incomingText = await transcribeVoice(body.messageData.fileMessageData.downloadUrl);
   } else if (body.typeWebhook === "incomingMessageReceived") {
@@ -70,7 +86,7 @@ app.post("/webhook", async (req, res) => {
       model: "gpt-4o",
       messages: [
         { role: "system", content: getSystemPrompt() },
-        ...session.history.slice(-30),
+        ...session.history.slice(-15), // تقليل التاريخ لزيادة السرعة والدقة
         { role: "user", content: incomingText }
       ],
       temperature: 0
@@ -87,7 +103,9 @@ app.post("/webhook", async (req, res) => {
 
     await sendWA(chatId, reply);
     session.history.push({ role: "user", content: incomingText }, { role: "assistant", content: reply });
-  } catch (err) { console.error("Error Processing Request"); }
+  } catch (err) { 
+    console.error("Error Processing Request:", err.message); 
+  }
 });
 
 /* ================= الوظائف المساعدة ================= */
@@ -108,7 +126,11 @@ async function transcribeVoice(url) {
 }
 
 async function sendWA(chatId, message) {
-  try { await axios.post(`${SETTINGS.API_URL}/sendMessage/${SETTINGS.GREEN_TOKEN}`, { chatId, message }); } catch (err) {}
+  try { 
+    await axios.post(`${SETTINGS.API_URL}/sendMessage/${SETTINGS.GREEN_TOKEN}`, { chatId, message }); 
+  } catch (err) {
+    console.error("WA Send Error:", err.message);
+  }
 }
 
-app.listen(3000, () => console.log("Saber Bot - Env Variable Menu Version Live"));
+app.listen(3000, () => console.log("Saber Bot Fixed - No More Loops"));
