@@ -69,64 +69,87 @@ const getSystemPrompt = () => {
 `;
 };
 
-
 /* ================= WEBHOOK ================= */
 app.post("/webhook", async (req, res) => {
   res.sendStatus(200);
   const body = req.body;
+  
+  // دعم الرسائل النصية والصور
   if (body.typeWebhook !== "incomingMessageReceived") return;
 
   const chatId = body.senderData?.chatId;
-  const text = body.messageData?.textMessageData?.textMessage || 
-               body.messageData?.extendedTextMessageData?.text || "";
+  let text = body.messageData?.textMessageData?.textMessage || 
+             body.messageData?.extendedTextMessageData?.text || "";
+  
+  const caption = body.messageData?.fileMessageData?.caption || ""; // في حال أرسل صورة مع نص
+  const imageUrl = body.messageData?.fileMessageData?.downloadUrl || null;
 
-  // منع الرد على الجروبات ومنع الرد على الرسائل الفارغة
-  if (!chatId || chatId.includes("@g.us") || !text.trim()) return;
+  if (!chatId || chatId.includes("@g.us")) return;
 
+  // إدارة الجلسة
   if (!SESSIONS[chatId]) {
-      SESSIONS[chatId] = { history: [], lastActive: Date.now() };
+      SESSIONS[chatId] = { history: [], lastActive: Date.now(), alreadyOrdered: false };
   }
+  const session = SESSIONS[chatId];
+  session.lastActive = Date.now();
 
-  if (text.includes("طلب جديد")) {
-      SESSIONS[chatId] = { history: [], lastActive: Date.now() };
-      await sendWA(chatId, "من عيوني، مسحنا كل شي. تفضل شو حابب تطلب هسه؟ 🍔");
+  // إذا كان قد طلب مسبقاً
+  if (session.alreadyOrdered) {
+      await sendWA(chatId, `يا غالي، طلبك صار بالمطبخ وعم نجهزه. لأي تعديل أو استفسار تواصل معنا مباشرة على الرقم: ${SETTINGS.RESTAURANT_PHONE} 📞`);
       return;
   }
 
-  const session = SESSIONS[chatId];
+  // دمج النص مع الكابشن إذا وُجدت صورة
+  const userContent = [
+    { type: "text", text: text + " " + caption }
+  ];
+
+  if (imageUrl) {
+    userContent.push({ type: "image_url", image_url: { url: imageUrl } });
+  }
+
   try {
     const ai = await axios.post("https://api.openai.com/v1/chat/completions", {
-      model: "gpt-4o-mini",
+      model: "gpt-4o-mini", // هذا الموديل يدعم Vision (الصور)
       messages: [
         { role: "system", content: SYSTEM_PROMPT },
-        ...session.history.slice(-10),
-        { role: "user", content: text }
+        ...session.history.slice(-30), // توسيع الذاكرة لـ 30 رسالة
+        { role: "user", content: userContent }
       ],
       temperature: 0.3
     }, {
       headers: { Authorization: `Bearer ${SETTINGS.OPENAI_KEY}` },
-      timeout: 15000
+      timeout: 20000
     });
 
     let reply = ai.data.choices[0].message.content;
 
     if (reply.includes("[KITCHEN_GO]")) {
-      const orderClean = reply.replace("[KITCHEN_GO]", "🔔 *طلب جديد!*").trim();
-      await sendWA(SETTINGS.KITCHEN_GROUP, orderClean);
-      await sendWA(chatId, "تم اعتماد طلبك وإرساله للمطبخ! 👨‍🍳\nثواني وبنكلمك لتأكيد التجهيز. صحتين وعافية!");
-      delete SESSIONS[chatId];
+      const orderClean = reply.replace("[KITCHEN_GO]", "\n✅ *طلب جديد مؤكد*").trim();
+      
+      // إرسال للمطبخ
+      await sendWA(SETTINGS.KITCHEN_GROUP, `🔔 *إشعار مطبخ*\n${orderClean}`);
+      
+      // إرسال للزبون
+      await sendWA(chatId, orderClean);
+      
+      session.alreadyOrdered = true; 
       return;
     }
 
     await sendWA(chatId, reply);
-    session.history.push({ role: "user", content: text }, { role: "assistant", content: reply });
+    session.history.push({ role: "user", content: text + " " + caption }, { role: "assistant", content: reply });
 
   } catch (err) {
-    await sendWA(chatId, "حصل ضغط بسيط عندي، ممكن ترسل آخر رسالة كمان مرة؟ 🙏");
+    console.error(err);
+    await sendWA(chatId, "سامحني يا غالي، صار عندي ضغط رسائل. ممكن ترجع تبعت شو بدك؟ 🙏");
   }
 });
+
 async function sendWA(chatId, message) {
-  try { await axios.post(`${SETTINGS.API_URL}/sendMessage/${SETTINGS.GREEN_TOKEN}`, { chatId, message }); } catch (e) {}
+  try { 
+      await axios.post(`${SETTINGS.API_URL}/sendMessage/${SETTINGS.GREEN_TOKEN}`, { chatId, message }); 
+  } catch (e) { console.error("Error sending WA:", e); }
 }
 
-app.listen(3000, () => console.log("Saber Bot - Fixed Logic Live!"));
+app.listen(3000, () => console.log("Saber Bot - Advanced Logic Online!"));
