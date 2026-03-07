@@ -80,11 +80,17 @@ app.post("/webhook", async (req, res) => {
   if (chatId.endsWith('@g.us')) return;
 
   const userMessage = body.messageData.textMessageData?.textMessage || body.messageData.extendedTextMessageData?.text || "";
-  if (!userMessage || PROCESSED_MESSAGES.has(body.idMessage)) return;
-  PROCESSED_MESSAGES.add(body.idMessage);
+const now = Date.now();
+  // مسح الذاكرة إذا مر عليها أكثر من 24 ساعة
+  if (SESSIONS[chatId] && (now - SESSIONS[chatId].lastActivity > 24 * 60 * 60 * 1000)) {
+    delete SESSIONS[chatId];
+  }
 
-  if (!SESSIONS[chatId]) SESSIONS[chatId] = { history: [], waitingConfirmation: false, alreadyOrdered: false };
+  if (!SESSIONS[chatId]) {
+    SESSIONS[chatId] = { history: [], waitingConfirmation: false, alreadyOrdered: false, lastActivity: now };
+  }
   let session = SESSIONS[chatId];
+  session.lastActivity = now; // تحديث الوقت مع كل رسالة
 
   try {
     const aiResponse = await axios.post("https://api.openai.com/v1/chat/completions", {
