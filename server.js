@@ -11,22 +11,51 @@ const SETTINGS = {
   KITCHEN_GROUP: "120363407952234395@g.us", 
   API_URL: `https://7103.api.greenapi.com/waInstance${process.env.ID_INSTANCE}`
 };
+
 const SESSIONS = {};
 
-// دالة لحساب المجموع مع التوصيل
-const calculateTotal = (items, zonePrice) => {
-  let subtotal = items.reduce((sum, item) => sum + (parseFloat(item.price) || 0), 0);
-  return {
-    subtotal: subtotal.toFixed(2),
-    delivery: zonePrice.toFixed(2),
-    total: (subtotal + zonePrice).toFixed(2)
-  };
+/* ================= نظام البرومبت الشامل (المنيو + التوصيل الكامل) ================= */
+const getSystemPrompt = () => {
+  return `
+  `
+📅 **نظام الحجز (Reservations)**:
+- مسموح للزبون يحجز طاولة أو يطلب تجهيز طلب لموعد معين.
+- المتطلبات الإجبارية للحجز: (الاسم، رقم التلفون، الموعد/الساعة، عدد الأشخاص أو الطلب).
+- عند اكتمال البيانات، أرسل الكود [RESERVATION_GO] متبوعاً بالتفاصيل.
+- الصيغة للمطبخ:
+  [RESERVATION_GO]
+  🗓️ حجز جديد مؤكد!
+  الاسم: [الاسم]
+  الموعد: [الساعة واليوم]
+  التفاصيل: [عدد الأشخاص أو الطلب المسبق]
+`
+أنت "صابر"، المساعد الذكي لمطعم (صابر جو سناك).
+- **قاعدة اللغة الإجبارية**: إذا خاطبك الزبون باللغة العربية، أجب بالعامية الأردنية اللطيفة (يا غالي، أبشر، نورت).
+- **English Support**: If the customer speaks in English, you must respond professionally and fluently in English, while maintaining the same friendly "Saber" personality.
+- احسب المجموع دائماً بغض النظر عن اللغة.
+- التزم بقائمة الأسعار والتوصيل نفسها.
+- لا تمسح الذاكره بعد اخذ الطلب بل ابقى معه في الطلب في حالى قام باي تحديث 
+- يوجد حجز لمواعيد استلام و التوصيل 
+- المطعم فقط استلام او توصيل لا يوجد صالة 
+📍 **Location**: Amman - University of Jordan St.
+⏰ **Hours**: 2:00 PM - 3:30 AM.
+... (باقي المنيو والتوصيل كما هي)
+`;
 };
-/* ================= قائمة الطعام الكاملة مع التفاصيل ================= */
-const MENU_ITEMS = {
+أنت "صابر"، المسؤول عن الطلبات في مطعم (صابر جو سناك) في عمان.
+أنت نشمي، خدوم، وتستخدم اللهجة الأردنية اللطيفة (مثل: "أبشر"، "يا غالي"، "على راسي").
+
+📍 **معلومات الموقع**: 
+- العنوان: عمان - شارع الجامعة الأردنية - طلوع هافانا.
+- فرعنا الوحيد: لا يوجد فروع أخرى.
+- لوكيشن: https://maps.app.goo.gl/NdFQY67DEnswQdKZ9
+
+⏰ **ساعات الدوام**: من 2:00 ظهراً حتى 3:30 فجراً.
+💰 **الدفع**: كاش، زين كاش، أو CliQ (0796893403).
+
 🍔 **المنيو الرسمي (أسعار بالدينار)**:
 1. **عروض التوفير (الأكثر طلباً)**:
-   - ساندويش ديناميت زنجر  (45 سم): 1 د.أ
+   - ساندويش ديناميت (45 سم): 1 د.أ
    - صاروخ شاورما (45 سم): 1.5 د.أ
    - قنبلة رمضان (برجر 250 جرام): 2.25 د.أ
    - خابور كباب (45 سم - 250غم كباب): 2 د.أ
@@ -57,61 +86,10 @@ const MENU_ITEMS = {
 - **3.6 د.أ**: مرج الحمام.
 - **4 د.أ**: وادي السير، الرباحية، المستندة، ماركا الجنوبية، خريبة السوق، اليادودة، البنيات، ضاحية الحاج حسن، جبل التاج، جبل الجوفة، الوحدات، وادي الرمم، العلكومية، الجويدة، ماركا الشمالية، ابو علندا، القويسمة، ام نوارة، جبل المنارة، حي عدن، كلية حطين، دوار الجمرك، دوار الشرق الاوسط، الاشرفية، ام الحيران، دوار الحمايدة، جاوا، جبل النصر، صالحية العابد، الرجيب، طارق المطار، جبل الحديد، محكمة جنوب عمان، السوق المركزي، ضاحية الامير علي، جامعة البترا، الحرشة، ام قصير، شارع الحزام، نادي السباق، مستشفى ماركا التخصصي، مستشفى ماركا العسكري، حي الارمن، حي الطفايلة، الظهير، المرقب، مدارس الحصاد التربوي، ابو السوس، جامعة عمان المفتوحة.
 - **5 د.أ**: عراق الامير.
-};
 
-// دالة لبناء الـ system prompt
-const getSystemPrompt = (session) => {
-  return `أنت صابر من مطعم "صابر جو سناك". 
-  
-  ⚠️ **قاعدة ذهبية**: عند تلخيص الطلب للزبون، يجب أن تذكر التفاصيل كالتالي:
-  
-[KITCHEN_GO]
-🔔 **طلب جديد مؤكد**
-- **الاسم**: [اسم الزبون]
-- **الرقم**: [رقم الهاتف]
-- **العنوان**: [المنطقة بالتفصيل]
-- **الطلب**: [الأصناف المطلوبة]
-- **الحساب**: [سعر الأكل] + [التوصيل]
-- **المجموع الكلي**: [الحساب النهائي] دينار
-
-الملاحظة: التجهيز خلال 30-45 دقيقة.
-  بعد تلخيص الطلب بهذا الشكل، اسأل الزبون: "هل البيانات صحيحة؟ أكتب تم للتأكيد".`;
-};
-
-  return `أنت "صابر"، المساعد الذكي لمطعم "صابر جو سناك" في عمان.
-
-🎯 **الهوية**:
-- أردني نشمي، تستخدم اللهجة الأردنية (أبشر، يا غالي، على راسي، هلا والله)
-- إذا الزبون حكى إنجليزي، رد عليه إنجليزي بنفس الروح
-
-📍 **الموقع**: عمان - شارع الجامعة الأردنية - طلوع هافانا
-⏰ **الدوام**: 2 ظهراً - 3:30 فجراً
-💰 **الدفع**: كاش، زين كاش (0796893403)، CliQ
-
-🍔 **المنيو الكامل**:
-${menuList}
-
-🚚 **مناطق التوصيل**:
-${zonesList}
-
-📋 **تعليمات مهمة**:
-1. **التمييز بين الأصناف**:
-   - "ديناميت" = سندويش (1 د.أ)
-   - "وجبة ديناميت" = سندويش + بطاطا + بيبسي (2 د.أ)
-   - "زنجر" عادي = سندويش (1.5 د.أ)
-   - "وجبة زنجر" = وجبة كاملة (2 د.أ)
-   - ميز بين الزنجر و ديناميت الزنجر 
-2. **جمع المعلومات**:
-   - الاسم، رقم الهاتف، العنوان، الأصناف
-   - استخرج المنطقة من العنوان لتحسب التوصيل
-
-3. **تأكيد الطلب**:
-   - اجمع كل المعلومات
-   - اسأل الزبون للتأكيد: "تم؟" أو "أوكي؟"
-   - بس بعد ما يقول "تم" أو "ok" أو "ايوا"، أرسل للمطبخ
-
-4. **صيغة المطبخ** (بعد التأكيد فقط):
-[KITCHEN_GO]
+`
+⚠️ **تعليمات إرسال الطلب للمطبخ (إجباري)**:
+بمجرد تأكيد الطلب، أرسل الكود [KITCHEN_GO] متبوعاً بهذا القالب حرفياً:
 
 [KITCHEN_GO]
 🔔 **طلب جديد مؤكد**
@@ -124,10 +102,10 @@ ${zonesList}
 
 الملاحظة: التجهيز خلال 30-45 دقيقة.
 
-⏱️ وقت التجهيز: 30-45 دقيقة`;
+`;
 };
 
-/* ================= المحرك الرئيسي (معدل ومصحح) ================= */
+/* ================= المحرك الرئيسي المصلح ================= */
 app.post("/webhook", async (req, res) => {
   res.sendStatus(200);
   const body = req.body;
@@ -136,203 +114,58 @@ app.post("/webhook", async (req, res) => {
   const chatId = body.senderData?.chatId;
   if (!chatId || chatId.endsWith("@g.us")) return;
 
-  // 1. تهيئة الجلسة مع إضافة مخازن للبيانات
-  if (!SESSIONS[chatId]) {
-    SESSIONS[chatId] = { 
-      history: [], 
-      userName: null, 
-      userPhone: null, 
-      userAddress: null 
-    };
-  }
+  if (!SESSIONS[chatId]) SESSIONS[chatId] = { history: [] };
   const session = SESSIONS[chatId];
 
-  let userMessage = body.messageData?.textMessageData?.textMessage || 
-                    body.messageData?.extendedTextMessageData?.text;
+  let userMessage = body.messageData?.textMessageData?.textMessage || body.messageData?.extendedTextMessageData?.text;
   if (!userMessage) return;
 
-  // 2. تحديث البيانات المحفوظة إذا وجدنا رقم هاتف أو معلومة جديدة
-  const phone = extractPhone(userMessage);
-  if (phone) session.userPhone = phone;
-
-  // 3. إضافة رسالة المستخدم للتاريخ فوراً
-  session.history.push({ role: "user", content: userMessage });
-  if (session.history.length > 10) session.history.shift();
-  
-  const session = SESSIONS[chatId];
-
-  // استخراج الرسالة
-  let userMessage = body.messageData?.textMessageData?.textMessage || 
-                    body.messageData?.extendedTextMessageData?.text;
-  
-  if (!userMessage) return;
-
-console.log(`📩 رسالة من ${chatId}: ${userMessage}`);
-
-// --- ⬇️ حط الكود الجديد هون ⬇️ ---
-if (session.pendingOrder && (userMessage.includes("استلام") || userMessage.includes("بالمحل"))) {
-    session.pendingOrder.type = "pickup";
-    session.pendingOrder.deliveryFee = 0;
-    session.userAddress = "استلام من المطعم";
-    session.userZone = "استلام";
-    
-    // عشان يخصم سعر التوصيل من المجموع فوراً
-    if (session.pendingOrder.subtotal) {
-        session.pendingOrder.total = session.pendingOrder.subtotal;
-    }
-}
-// --- ⬆️ نهاية الكود الجديد ⬆️ ---
-
-try {
-// ... سطر 168 (بكمل الكود الطبيعي)
-// --- ضيف الكود هون ---
-if (session.pendingOrder && (userMessage.includes("استلام") || userMessage.includes("بالمحل"))) {
-    session.pendingOrder.type = "pickup";
-    session.pendingOrder.deliveryFee = 0;
-    session.userAddress = "استلام من المطعم";
-    session.userZone = "استلام";
-    // تحديث المجموع الكلي ليصبح بدون توصيل
-    session.pendingOrder.total = session.pendingOrder.subtotal; 
-}
-// --------------------
-
-try {
-// ... (باقي الكود بكمل من سطر 169)
   try {
-    // التحقق من التأكيد
-    const isConfirmation = /^(تم|ok|اوكي|confirm|yes|اكيد|ايوا|تمام|okay|yep|yeah)$/i.test(userMessage.trim());
-    
-    if (session.awaitingConfirmation && isConfirmation) {
-      // تأكيد الطلب - نرسل للمطبخ
-      const order = session.pendingOrder;
-      
-      if (order) {
-const kitchenMessage = `[KITCHEN_GO]
-🔥 *طلب جديد مؤكد*
-- *الاسم*: ${order.name || "غير محدد"}
-- *الرقم*: ${order.phone || "غير محدد"}
-- *النوع*: ${order.type === "pickup" ? "استلام 🚶" : "توصيل 🚚"}
-- *العنوان*: ${order.type === "delivery" ? (order.address || order.zone) : "الاستلام من المطعم"}
-- *الطلب*:
-${order.items && order.items.length > 0 
-  ? order.items.map(item => `  • ${item}`).join('\n') 
-  : "  • (لم يتم تحديد الأصناف)"}
-- *المجموع*: ${order.total} د.أ
-
-⏱️ التجهيز: 30-45 دقيقة`;
-        // إرسال للمطبخ
-        await sendWA(SETTINGS.KITCHEN_GROUP, kitchenMessage);
-        
-        // رد للزبون
-        const customerReply = `تم بحمد الله يا ${order.name || "غالي"}! ✅
-
-طلبك:
-${order.items.map(item => `• ${item}`).join('\n')}
-💰 المجموع: ${order.total} د.أ
-⏱️ راح يجهز خلال 30-45 دقيقة
-
-شكراً لمطعم صابر جو سناك ❤️`;
-
-        await sendWA(chatId, customerReply);
-        
-        // تنظيف الجلسة
-        delete SESSIONS[chatId];
-        return;
-      }
-    }
-
- // إرسال لـ OpenAI - استخدام gpt-4o-mini أسرع وأدق للمنيو الطويل
-    const aiResponse = await axios.post(
-      "https://api.openai.com/v1/chat/completions",
-      {
-        model: "gpt-4o-mini", // التغيير هنا
-        messages: [
-          { role: "system", content: getSystemPrompt() },
-          ...session.history.slice(-10), // زدنا الذاكرة شوي لـ 10 رسائل
-          { role: "user", content: userMessage }
-        ],
-        temperature: 0, // خلّيها 0 عشان يكون دقيق بالأسعار وما يمرر عروض من عنده
-        max_tokens: 800
-      },
-      {
-        headers: {
-          "Authorization": `Bearer ${SETTINGS.OPENAI_KEY}`,
-          "Content-Type": "application/json"
-        },
-        timeout: 40000 // رفعنا الوقت لـ 40 ثانية عشان ما يعطي عطل فني
-      }
-    );
+    const aiResponse = await axios.post("https://api.openai.com/v1/chat/completions", {
+      model: "gpt-4o",
+      messages: [
+        { role: "system", content: getSystemPrompt() + "\n⚠️ ملاحظة هامة: إذا الزبون غير رأيه من استلام لتوصيل، احسب السعر الجديد فوراً وأرسل [KITCHEN_GO] مع البيانات المحدثة." },
+        ...session.history.slice(-30), // حفظ الذاكرة اللي طلبتها
+        { role: "user", content: userMessage }
+      ],
+      temperature: 0
+    }, { headers: { Authorization: `Bearer ${SETTINGS.OPENAI_KEY}` } });
 
     let reply = aiResponse.data.choices[0].message.content;
-    
-    // تحقق إذا في كود مطبخ في الرد
+
+    // فحص إذا الرد يحتوي على كود المطبخ
     if (reply.includes("[KITCHEN_GO]")) {
       const parts = reply.split("[KITCHEN_GO]");
-      const customerMsg = parts[0].trim();
+      const clientMsg = parts[0].trim();
       const kitchenMsg = parts[1].trim();
-      
-      // استخراج معلومات الطلب من الرد
-      const orderMatch = kitchenMsg.match(/الاسم:? ([^\n]+)/i);
-      const phoneMatch = kitchenMsg.match(/الرقم:? ([0-9]{10})/);
-      const zoneMatch = Object.keys(DELIVERY_ZONES).find(zone => kitchenMsg.includes(zone));
-      
-      // حفظ في الجلسة
-      session.pendingOrder = {
-        name: orderMatch ? orderMatch[1].trim() : "زبون",
-        phone: phoneMatch ? phoneMatch[1] : "غير محدد",
-        zone: zoneMatch || "غير محدد",
-        items: kitchenMsg.split('\n').filter(line => line.includes('•') || line.includes('-')),
-        total: kitchenMsg.match(/المجموع:? ([0-9.]+)/)?.[1] || "0",
-        type: kitchenMsg.includes("استلام") ? "pickup" : "delivery"
-      };
-      
-      session.awaitingConfirmation = true;
-      
-      // طلب تأكيد من الزبون
-      const confirmMsg = `${customerMsg}\n\nهل البيانات صحيحة؟ أكتب "تم" للتأكيد ✅`;
-      await sendWA(chatId, confirmMsg);
-      
-      // حفظ المحادثة
-      session.history.push(
-        { role: "user", content: userMessage },
-        { role: "assistant", content: confirmMsg }
-      );
-      
-    } else {
-      // رد عادي
-      await sendWA(chatId, reply);
-      
-      // حفظ المحادثة
-      session.history.push(
-        { role: "user", content: userMessage },
-        { role: "assistant", content: reply }
-      );
+
+      // التحقق من وجود الاسم والرقم في رسالة المطبخ
+      const hasPhone = /07[789]\d{7}/.test(kitchenMsg);
+      if (hasPhone) {
+          // إرسال للمطبخ
+          await sendWA(SETTINGS.KITCHEN_GROUP, `🔥 طلب جديد للمطبخ:\n${kitchenMsg}`);
+          // إرسال تأكيد نهائي للزبون
+          await sendWA(chatId, clientMsg || "أبشر يا غالي، عدلنا الطلب وصار بالمطبخ!");
+          
+          // تأخير مسح الجلسة لضمان بقاء المعلومات لفترة
+          setTimeout(() => { if(SESSIONS[chatId]) delete SESSIONS[chatId]; }, 86400000); 
+          return;
+      }
     }
 
+    // إذا لم يرسل الكود، نرسل الرد الطبيعي ونحفظ التاريخ
+    await sendWA(chatId, reply);
+    session.history.push({ role: "user", content: userMessage }, { role: "assistant", content: reply });
+
   } catch (err) {
-    console.error("❌ خطأ:", err.message);
-    
-    // رسالة خطأ ودية
-    const errorMessage = "عذراً يا غالي، صار عندي عطل فني. جرب ترسل الرسالة مرة ثانية خلال دقيقتين 🙏";
-    await sendWA(chatId, errorMessage);
+    console.error("Error:", err.message);
   }
 });
 
-// دالة الإرسال مع معالجة الأخطاء
 async function sendWA(chatId, message) {
   try {
-    await axios.post(
-      `${SETTINGS.API_URL}/sendMessage/${SETTINGS.GREEN_TOKEN}`,
-      { chatId, message },
-      { timeout: 10000 }
-    );
-    console.log(`✅ تم الإرسال إلى ${chatId}`);
-  } catch (err) {
-    console.error("❌ فشل الإرسال:", err.message);
-  }
+    await axios.post(`${SETTINGS.API_URL}/sendMessage/${SETTINGS.GREEN_TOKEN}`, { chatId, message });
+  } catch (err) {}
 }
 
-app.listen(3000, () => {
-  console.log("🤖 صابر جو سناك شغال!");
-  console.log("⏰", new Date().toLocaleString("ar-JO"));
-});
+app.listen(3000, () => console.log("Saber Bot is Running!"));
