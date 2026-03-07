@@ -158,8 +158,7 @@ app.post("/webhook", async (req, res) => {
       temperature: 0
     }, { headers: { Authorization: `Bearer ${SETTINGS.OPENAI_KEY}` } });
 
-    let reply = aiResponse.data.choices[0].message.content;
-
+const hasName = (reply.includes("الاسم:") && !reply.includes("[اسم الزبون]")) || (userMessage.length > 2 && !userMessage.includes("عروض") && !userMessage.includes("منيو"));
     // فحص ذكي للبيانات (حل مشكلة تكرار طلب الاسم والرقم)
     const phoneRegex = /(07[789]\d{7})/;
     const hasPhone = phoneRegex.test(userMessage) || phoneRegex.test(reply);
