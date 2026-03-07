@@ -70,90 +70,84 @@ const getSystemPrompt = () => {
 };
 
 /* ================= المحرك الرئيسي ================= */
-/* ================= المحرك الرئيسي المطور (ضد الهلوسة) ================= */
+/* ================= المحرك الرئيسي - نسخة إصلاح الإرسال للمطبخ ================= */
 app.post("/webhook", async (req, res) => {
-  res.sendStatus(200); // للرد على Green API فوراً
+  res.sendStatus(200);
   const body = req.body;
-  
-  // التأكد أن الرسالة واردة وليست حالة (status)
   if (body.typeWebhook !== "incomingMessageReceived") return;
 
   const chatId = body.senderData.chatId;
-  if (chatId.endsWith('@g.us')) return; // تجاهل المجموعات
+  if (chatId.endsWith('@g.us')) return;
 
   const userMessage = body.messageData.textMessageData?.textMessage || body.messageData.extendedTextMessageData?.text || "";
   const now = Date.now();
 
-  // 1. إدارة الجلسة والذاكرة
   if (!SESSIONS[chatId]) {
-    SESSIONS[chatId] = { history: [], waitingConfirmation: false, lastActivity: now };
+    SESSIONS[chatId] = { history: [], waitingConfirmation: false, lastActivity: now, pendingOrderData: null };
   }
   const session = SESSIONS[chatId];
   session.lastActivity = now;
 
   try {
-    // 2. إرسال الطلب لـ OpenAI مع تثبيت الحرارة لمنع التأليف
     const aiResponse = await axios.post("https://api.openai.com/v1/chat/completions", {
       model: "gpt-4o",
       messages: [
         { role: "system", content: getSystemPrompt() },
-        ...session.history.slice(-20), // زيادة الذاكرة لـ 20 رسالة لضمان الفهم العميق
+        ...session.history.slice(-15),
         { role: "user", content: userMessage }
       ],
-      temperature: 0 
+      temperature: 0
     }, { headers: { Authorization: `Bearer ${SETTINGS.OPENAI_KEY}` } });
 
     let reply = aiResponse.data.choices[0].message.content;
 
-    // 3. فحص البيانات الأساسية (اسم، رقم، موعد، نوع الطلب)
+    // فحص الهاتف والاسم
     const phoneRegex = /(07[789]\d{7})/;
     const hasPhone = phoneRegex.test(userMessage) || phoneRegex.test(reply) || session.history.some(m => phoneRegex.test(m.content));
     
-    // تحديد نوع الطلب من كلام الزبون أو رد البوت
-    const isPickup = userMessage.includes("استلام") || reply.includes("استلام");
-    const isDelivery = userMessage.includes("توصيل") || reply.includes("توصيل");
-    const isTimeBooking = userMessage.includes("ساعة") || userMessage.includes("موعد") || userMessage.includes("على الـ");
-
-    // كلمات التأكيد باللهجة الأردنية
-    const confirmationWords = ["اعتمد", "نعم", "اوكي", "أكيد", "اه", "يلا", "تم", "ماشي", "توكل", "ثبت", "هات", "انجز", "ابشر"];
+    // كلمات التأكيد
+    const confirmationWords = ["اعتمد", "نعم", "اوكي", "أكيد", "اه", "يلا", "تم", "ماشي", "توكل", "ثبت", "هات", "انجز", "توصيل", "أوك", "اوك"];
     const isConfirmed = confirmationWords.some(word => userMessage.toLowerCase().includes(word));
 
-    // 4. منطق إرسال الطلب للمطبخ
+    // إذا البوت استخرج بيانات المطبخ
     if (reply.includes("[KITCHEN_GO]")) {
-      
-      // الحالة أ: طلب توصيل بدون رقم تلفون
-      if (isDelivery && !hasPhone) {
-        reply = "أبشر يا غالي، بس زودني بـ (الاسم ورقم التلفون) ومنطقة السكن عشان نثبت الطلب ونحسب التوصيل.";
+        // حفظ تفاصيل الطلب في الجلسة حتى لا تضيع
+        session.pendingOrderData = reply.split("[KITCHEN_GO]")[1] || reply;
+    }
+
+    if (session.pendingOrderData) {
+      // 1. فحص إذا كان نقص بيانات (اسم ورقم)
+      if (!hasPhone) {
+        reply = "على راسي، بس زودني بـ (الاسم ورقم التلفون) عشان أثبت الطلب وأرميه عالمطبخ فوراً.";
       } 
-      // الحالة ب: الزبون أكد الطلب أو أعطى الرقم بعد ما كنا بنستناه
+      // 2. إذا البيانات موجودة والزبون أكد (أو بعت الرقم وهو أصلاً بمرحلة التأكيد)
       else if (isConfirmed || (hasPhone && session.waitingConfirmation)) {
-        const orderData = reply.split("[KITCHEN_GO]")[1] || reply;
         
         let kitchenHeader = "✅ طلب جديد مؤكد:\n";
-        if (isPickup) kitchenHeader = "🏪 طلب استلام من المطعم:\n";
-        if (isTimeBooking) kitchenHeader = "⏰ طلب حجز (موعد محدد):\n";
+        if (userMessage.includes("استلام") || reply.includes("استلام")) kitchenHeader = "🏪 طلب استلام:\n";
         
-        // إرسال للمطبخ
-        await sendWA(SETTINGS.KITCHEN_GROUP, kitchenHeader + orderData.trim());
+        // الإرسال الفعلي للجروب
+        await sendWA(SETTINGS.KITCHEN_GROUP, kitchenHeader + session.pendingOrderData.trim());
+        
         // رد التأكيد للزبون
-        await sendWA(chatId, "أبشر، طلبك اعتمدناه وصار بالمطبخ! نورت مطعم صابر 🙏");
+        reply = "أبشر يا نشمي، طلبك اعتمدناه وصار بالمطبخ! نورت مطعم صابر 🙏";
         
+        // تصفير حالة الانتظار والطلب المعلق
         session.waitingConfirmation = false;
+        session.pendingOrderData = null;
       } 
-      // الحالة ج: البوت جهز الطلب وبنتظر كلمة "تم" من الزبون
       else {
+        // حالة انتظار التأكيد
         session.waitingConfirmation = true;
-        reply = reply.replace("[KITCHEN_GO]", "").trim() + "\n\nأعتمد الطلب يا غالي؟";
+        reply = reply.replace("[KITCHEN_GO]", "").trim();
+        if (!reply.includes("أعتمد")) reply += "\n\nأعتمد الطلب وأبعته للمطبخ يا نشمي؟";
       }
     }
 
-    // 5. إرسال الرد وحفظ الذاكرة
     await sendWA(chatId, reply);
     session.history.push({ role: "user", content: userMessage }, { role: "assistant", content: reply });
 
-  } catch (err) { 
-    console.error("Error Details:", err.response?.data || err.message); 
-  }
+  } catch (err) { console.error("Error:", err.message); }
 });
 
 async function sendWA(chatId, message) {
