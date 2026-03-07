@@ -159,38 +159,41 @@ app.post("/webhook", async (req, res) => {
     const phoneRegex = /(07[789]\d{7})/;
     const hasPhone = phoneRegex.test(userMessage) || phoneRegex.test(reply);
     const hasName = (reply.includes("الاسم:") && !reply.includes("[اسم الزبون]")) || (userMessage.length > 3 && !userMessage.includes("عروض"));
-if (reply.includes("[KITCHEN_GO]")) {
+// ابدأ التظليل والاستبدال من هنا (السطر 162 تقريباً)
+    if (reply.includes("[KITCHEN_GO]")) {
       // رادار العامية الأردنية للتأكيد
       const userSaying = userMessage.toLowerCase();
       const confirmationWords = [
         "اعتمد", "نعم", "اوكي", "أكيد", "اه", "يلا", "تم", "ماشي", "توكل", 
-        "قبعت", "ثبت", "هات", "وديه", "انجز", "ابشر", "ماشي يا غالي", "اوك"
+        "ثبت", "هات", "وديه", "انجز", "ابشر", "قبعت", "ماشي يا غالي", "اوك"
       ];
       
       const isConfirmed = confirmationWords.some(word => userSaying.includes(word));
 
-      // 1. فحص ذكي للهاتف (لو كتبه بالعربي أو الإنجليزي)
+      // 1. فحص الهاتف (لو كتبه بالعربي أو الإنجليزي)
       if (!hasPhone) {
         reply = "على راسي يا نشمي، بس ابعتلي (الاسم ورقم التلفون) عشان أثبت الطلب وأرميه عالمطبخ فوراً.";
       } 
-      // 2. إذا البيانات كاملة وبنستنى كلمة "يلا"
+      // 2. إذا البيانات كاملة وبنستنى كلمة "يلا" أو "اعتمد"
       else if (!isConfirmed && !session.waitingConfirmation) {
         session.waitingConfirmation = true;
-        reply = "تمام يا غالي، الفاتورة جاهزة والبيانات كاملة. أعتمد وأبعت الطلب للمطبخ؟";
+        reply = "أبشر، الفاتورة جاهزة والبيانات كاملة. أعتمد وأبعت الطلب للمطبخ يا نشمي؟";
       } 
-      // 3. التنفيذ والإرسال للمطبخ
+      // 3. التنفيذ والإرسال للمطبخ (شامل سعر التوصيل وكل التفاصيل)
       else if (isConfirmed && session.waitingConfirmation) {
+        // التعديل هنا لضمان أخذ كل شيء بعد الكلمة المفتاحية بما فيها السعر
         const orderParts = reply.split("[KITCHEN_GO]");
         const orderData = orderParts[orderParts.length - 1].trim(); 
         
-        await sendWA(SETTINGS.KITCHEN_GROUP, orderData); 
+        await sendWA(SETTINGS.KITCHEN_GROUP, orderData); // يرسل للمطبخ الفاتورة كاملة مع التوصيل
         await sendWA(chatId, "أبشر، طلبك اعتمدناه وصار بالمطبخ! نورت مطعم صابر 🙏");
         
         session.waitingConfirmation = false;
-        session.history = []; 
-        return;
+        session.history = []; // تصفير الجلسة لبدء طلب جديد
+        return res.sendStatus(200);
       }
     }
+    // ينتهي التظليل والاستبدال هنا
 
     await sendWA(chatId, reply);
     session.history.push({ role: "user", content: userMessage }, { role: "assistant", content: reply });
