@@ -69,98 +69,61 @@ const getSystemPrompt = () => {
 `;
 };
 
-/* ================= المحرك الرئيسي ================= */
-/* ================= المحرك الرئيسي - نسخة منع الرسائل الفارغة للمطبخ ================= */
+
+/* ================= WEBHOOK ================= */
 app.post("/webhook", async (req, res) => {
   res.sendStatus(200);
   const body = req.body;
   if (body.typeWebhook !== "incomingMessageReceived") return;
 
-  const chatId = body.senderData.chatId;
-  if (chatId.endsWith('@g.us')) return;
+  const chatId = body.senderData?.chatId;
+  const text = body.messageData?.textMessageData?.textMessage || 
+               body.messageData?.extendedTextMessageData?.text || "";
 
-  const userMessage = body.messageData.textMessageData?.textMessage || body.messageData.extendedTextMessageData?.text || "";
-  const now = Date.now();
+  // منع الرد على الجروبات ومنع الرد على الرسائل الفارغة
+  if (!chatId || chatId.includes("@g.us") || !text.trim()) return;
 
   if (!SESSIONS[chatId]) {
-    SESSIONS[chatId] = { history: [], waitingConfirmation: false, lastActivity: now, pendingOrderData: null, orderType: "delivery" };
+      SESSIONS[chatId] = { history: [], lastActive: Date.now() };
   }
+
+  if (text.includes("طلب جديد")) {
+      SESSIONS[chatId] = { history: [], lastActive: Date.now() };
+      await sendWA(chatId, "من عيوني، مسحنا كل شي. تفضل شو حابب تطلب هسه؟ 🍔");
+      return;
+  }
+
   const session = SESSIONS[chatId];
-  session.lastActivity = now;
-
   try {
-    const aiResponse = await axios.post("https://api.openai.com/v1/chat/completions", {
-      model: "gpt-4o",
+    const ai = await axios.post("https://api.openai.com/v1/chat/completions", {
+      model: "gpt-4o-mini",
       messages: [
-        { role: "system", content: getSystemPrompt() },
-        ...session.history.slice(-20),
-        { role: "user", content: userMessage }
+        { role: "system", content: SYSTEM_PROMPT },
+        ...session.history.slice(-10),
+        { role: "user", content: text }
       ],
-      temperature: 0 
-    }, { headers: { Authorization: `Bearer ${SETTINGS.OPENAI_KEY}` } });
+      temperature: 0.3
+    }, {
+      headers: { Authorization: `Bearer ${SETTINGS.OPENAI_KEY}` },
+      timeout: 15000
+    });
 
-    let reply = aiResponse.data.choices[0].message.content;
+    let reply = ai.data.choices[0].message.content;
 
-    // 1. منطق استخراج الفاتورة المطور [KITCHEN_GO]
     if (reply.includes("[KITCHEN_GO]")) {
-        // إذا الكلمة موجودة، بنقسم النص وبناخد اللي بعدها
-        const parts = reply.split("[KITCHEN_GO]");
-        const orderContent = parts[1] ? parts[1].trim() : "";
-        
-        // حماية: إذا اللي بعد الكلمة فاضي، بناخد الرد كامل قبل الكلمة كاحتياط
-        session.pendingOrderData = orderContent || parts[0].trim();
-        
-        // النص اللي رح يروح للزبون (بدون كود المطبخ)
-        reply = parts[0].trim();
-
-        // تحديد نوع الطلب
-        if (reply.includes("استلام") || userMessage.includes("استلام") || reply.includes("موقعنا")) {
-            session.orderType = "pickup";
-        } else {
-            session.orderType = "delivery";
-        }
-    }
-
-    const phoneRegex = /(07[789]\d{7})/;
-    const hasPhone = phoneRegex.test(userMessage) || session.history.some(m => phoneRegex.test(m.content));
-    const confirmationWords = ["اعتمد", "نعم", "اوكي", "أكيد", "اه", "يلا", "تم", "ماشي", "توكل", "ثبت", "هات", "انجز", "توصيل", "أوك", "اوك", "استلام", "جهاز", "موافق"];
-    const isConfirmed = confirmationWords.some(word => userMessage.toLowerCase().includes(word));
-
-    // 2. الإرسال للمطبخ مع حماية ضد الرسائل الفارغة
-    if (session.pendingOrderData) {
-      
-      const isInstantPickup = session.orderType === "pickup" && (userMessage.includes("جهاز") || userMessage.includes("دقايق") || userMessage.includes("بوصل"));
-
-      if (session.orderType === "delivery" && !hasPhone) {
-        reply = "على راسي يا غالي، بس ابعتلي (الاسم ورقم التلفون) عشان أثبت الطلب وأرميه عالمطبخ.";
-      } 
-      else if (isConfirmed || isInstantPickup || (hasPhone && session.waitingConfirmation)) {
-        
-        let kitchenHeader = session.orderType === "pickup" ? "🏪 **طلب استلام**:\n" : "✅ **طلب توصيل مؤكد**:\n";
-        
-        // التأكد 100% إن البيانات مش فاضية قبل الإرسال
-        const finalOrderText = session.pendingOrderData || "خطأ: لم يتم استخراج تفاصيل الطلب، يرجى مراجعة المحادثة.";
-        
-        await sendWA(SETTINGS.KITCHEN_GROUP, kitchenHeader + finalOrderText);
-        
-        await sendWA(chatId, "أبشر، طلبك اعتمدناه وصار بالمطبخ! نورت مطعم صابر 🙏");
-        
-        session.waitingConfirmation = false;
-        session.pendingOrderData = null;
-        return; 
-      } 
-      else {
-        session.waitingConfirmation = true;
-        if (!reply.includes("أعتمد")) {
-            reply += "\n\nأعتمد الطلب يا نشمي؟";
-        }
-      }
+      const orderClean = reply.replace("[KITCHEN_GO]", "🔔 *طلب جديد!*").trim();
+      await sendWA(SETTINGS.KITCHEN_GROUP, orderClean);
+      await sendWA(chatId, "تم اعتماد طلبك وإرساله للمطبخ! 👨‍🍳\nثواني وبنكلمك لتأكيد التجهيز. صحتين وعافية!");
+      delete SESSIONS[chatId];
+      return;
     }
 
     await sendWA(chatId, reply);
-    session.history.push({ role: "user", content: userMessage }, { role: "assistant", content: reply });
+    session.history.push({ role: "user", content: text }, { role: "assistant", content: reply });
 
-  } catch (err) { console.error("Error:", err.message); }
+  } catch (err) {
+    await sendWA(chatId, "حصل ضغط بسيط عندي، ممكن ترسل آخر رسالة كمان مرة؟ 🙏");
+  }
 });
 async function sendWA(chatId, message) {
   try { await axios.post(`${SETTINGS.API_URL}/sendMessage/${SETTINGS.GREEN_TOKEN}`, { chatId, message }); } catch (e) {}
