@@ -320,8 +320,40 @@ if (!SESSIONS[chatId]) {
 
 
 
-    let reply = aiResponse.data.choices[0].message.content;
+let reply = aiResponse.data.choices[0].message.content;
 
+    if (reply.includes("[KITCHEN_GO]")) {
+        // 1. الفحص البرمجي الصارم للبيانات
+        const hasPhone = /(07[789]\d{7})/.test(reply) || reply.includes("07");
+        const hasName = reply.includes("الاسم:") && !reply.includes("[اسم الزبون]");
+
+        if (!hasPhone || !hasName) {
+            // إذا نقصت البيانات، نطلبها ولا نرسل للمطبخ
+            reply = "على راسي يا غالي، بس يا ريت تبعتلي (الاسم ورقم التلفون) عشان أقدر أعتمد الطلب وأبعته للمطبخ فوراً.";
+        } else {
+            // 2. إذا البيانات كاملة -> نستخرج الفاتورة التفصيلية
+            const finalInvoice = reply.split("[KITCHEN_GO]")[1].trim();
+
+            // إرسال الفاتورة للمطبخ
+            await sendWA(SETTINGS.KITCHEN_GROUP, finalInvoice);
+            
+            // إرسال الفاتورة "نفسها" للزبون لتأكيد الاستلام
+            await sendWA(chatId, finalInvoice);
+
+            // حفظ الجلسة ومسحها بعد 24 ساعة لضمان الاستمرارية
+            SESSIONS[chatId].history.push({ role: "user", content: userMessage }, { role: "assistant", content: reply });
+            setTimeout(() => { if (SESSIONS[chatId]) delete SESSIONS[chatId]; }, 86400000);
+            return; // إنهاء العملية هنا لمنع التكرار
+        }
+    }
+
+    // إرسال الرد العادي (الفاتورة المبدئية أو الدردشة)
+    await sendWA(chatId, reply);
+    SESSIONS[chatId].history.push({ role: "user", content: userMessage }, { role: "assistant", content: reply });
+
+  } catch (err) { 
+      console.error("Error:", err.message); 
+  }
 let reply = aiResponse.data.choices[0].message.content;
 
 /* --- استبدل المنطقة التي تلي تعريف reply بهذا الكود --- */
