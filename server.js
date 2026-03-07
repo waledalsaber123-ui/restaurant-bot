@@ -100,7 +100,18 @@ app.post("/webhook", async (req, res) => {
 
     let userMessage = body.messageData?.textMessageData?.textMessage || body.messageData?.extendedTextMessageData?.text;
     if (!userMessage) return;
+    if (/^(تم|تمام|ايوا|ok)$/i.test(userMessage) && session.lastKitchenMsg) {
+        // 1. إرسال الطلب للمطبخ
+        await sendWA(SETTINGS.KITCHEN_GROUP, session.lastKitchenMsg);
+        
+        // 2. رد على الزبون
+        await sendWA(chatId, "أبشر يا غالي، طلبك اعتمدناه وصار بالمطبخ! نورت مطعم صابر 🙏");
 
+        // 3. السر: تصفير أمر الإرسال فقط وبقاء الذاكرة (الـ 40 رسالة)
+        session.lastKitchenMsg = null; 
+        
+        // 4. إنهاء الدالة هون عشان ما نرجع نبعث كلمة "تم" للذكاء الاصطناعي ونخسر الذاكرة
+        return;
     try {
         const aiResponse = await axios.post("https://api.openai.com/v1/chat/completions", {
             model: "gpt-4o", 
