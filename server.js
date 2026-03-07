@@ -89,9 +89,11 @@ const now = Date.now();
   if (!SESSIONS[chatId]) {
     SESSIONS[chatId] = { history: [], waitingConfirmation: false, alreadyOrdered: false, lastActivity: now };
   }
-  let session = SESSIONS[chatId];
-  session.lastActivity = now; // تحديث الوقت مع كل رسالة
-
+messages: [
+        { role: "system", content: getSystemPrompt() },
+        ...session.history.slice(-30), // تأكد أن هذا الرقم 30
+        { role: "user", content: userMessage }
+      ],
   try {
     const aiResponse = await axios.post("https://api.openai.com/v1/chat/completions", {
       model: "gpt-4o",
