@@ -1,48 +1,26 @@
 import express from "express";
-
 import axios from "axios";
-
 import fs from "fs";
-
 import FormData from "form-data";
-
 import path from "path";
 
-
-
 const app = express();
-
 app.use(express.json());
 
-
-
 /* ================= الإعدادات ================= */
-
 const SETTINGS = {
-
   OPENAI_KEY: process.env.OPENAI_KEY,
-
   GREEN_TOKEN: process.env.GREEN_TOKEN,
-
   ID_INSTANCE: process.env.ID_INSTANCE,
-
   KITCHEN_GROUP: "120363407952234395@g.us", 
-
   RESTAURANT_PHONE: "0796893403",
-
   API_URL: `https://7103.api.greenapi.com/waInstance${process.env.ID_INSTANCE}`
-
 };
 
-
-
 const SESSIONS = {};
-
 const PROCESSED_MESSAGES = new Set();
 
-
-
-/* ================= نظام البرومبت (المناطق كاملة + حجز الاستلام بالوقت) ================= */
+/* ================= نظام البرومبت الموحد ================= */
 const getSystemPrompt = () => {
   return `
 📍 **معلومات الموقع والتواصل**:
@@ -58,540 +36,123 @@ const getSystemPrompt = () => {
 2. تحويل CliQ على الرقم: 0796893403.
 3. زين كاش.
 
-⚠️ **ملاحظة**: إذا سأل الزبون عن الموقع أو متى بنسكر أو كيف بدفع، جاوبه من المعلومات أعلاه بلهجتك اللطيفة.
-
-أنت "صابر"، المسؤول عن الحجوزات في مطعم (صابر جو سناك)...
-(باقي تعليمات المنيو والمناطق هنا)
-`;
-}; `
-
-
-⚠️ **نظام التأكيد المزدوج والفاتورة**:
-
-1. المرحلة الأولى: عند اكتمال الأصناف، أرسل للزبون "فاتورة مبدئية" بهذا الشكل:
-
-   "طلبك هو: [الأصناف] بقيمة [السعر].
-
-   أكدلي عشان آخذ منك (الاسم والرقم والعنوان) ونبعته للمطبخ؟"
-
-⚠️ **نظام الفاتورة والتأكيد (قواعد صارمة)**:
-
-1. **قبل طلب البيانات**: بمجرد تحديد الطلب والمنطقة، يجب إرسال "فاتورة تفصيلية" للزبون:
-
-   - مجموع الأكل: [حساب المجموع]
-
-   - أجور التوصيل: [حسب المنطقة]
-
-   - الإجمالي الكلي: [المجموع + التوصيل]
-
-   ثم اسأله: "أكدلي الاسم ورقم التلفون عشان نعتمد الطلب؟"
-
-
-
-2. **قاعدة [KITCHEN_GO]**: ممنوع نهائياً استخدام هذا الكود إلا إذا كتب الزبون اسمه ورقم هاتفه (يبدأ بـ 07).
-
-3. **التوصيل**: التزم بجدول الأسعار (1.5د، 2د، 2.5د، 3د، 3.5د، 4د) حسب المنطقة المذكورة سابقاً.
-
-2. المرحلة الثانية (التأكيد النهائي): لا تضع [KITCHEN_GO] إلا بعد الحصول على الاسم والرقم. 
-
-   يجب أن يكون نص الرد بعد [KITCHEN_GO] مطابقاً لهذا التنسيق تماماً:
-
-   🔔 طلب جديد!
-
-   الاسم: [اسم الزبون]
-
-   الرقم: [رقم الزبون]
-
-   العنوان (أو استلام): [المنطقة أو كلمة استلام]
-
-   الطلب: [تفاصيل الأصناف]
-
-   سعر الأكل: [السعر]
-
-   أجور التوصيل: [الأجر]
-
-   الإجمالي: [المجموع الكلي]
-
-`
-
-🚫 **قاعدة الحظر الصارمة (إلزامي)**:
-
-ممنوع نهائياً إرسال الكود [KITCHEN_GO] إلا إذا توفرت هذه البيانات كاملة:
-
-1. **الأصناف**: (ماذا يريد أن يأكل؟).
-
-2. **نوع الطلب**: (توصيل أو استلام).
-
-3. **الموعد**: (متى يريد الطلب؟ اليوم، بكره، الساعة كذا؟).
-
-4. **بيانات العميل**: (الاسم، المنطقة "إذا كان توصيل"، ورقم الهاتف).
-
-
-
-إذا نقص أي بند، لا ترسل للمطبخ، بل اطلب البند الناقص بأدب ولهجة أردنية. 
-
-مثال: "على راسي، بس أعطيني الاسم ورقم التلفون عشان أعتمد الطلب فوراً".
-
-` `
-
-⚠️ **تعليمات الاستمرارية ومنع نسيان الطلب**:
-
-- إذا قام الزبون بتحديد أصناف الطعام ثم قال كلمة "بكره" أو "أكد" أو "اعتمد"، لا تبدأ التحية من جديد. 
-
-- اعتبر كلمة "بكره" هي تحديد لموعد الاستلام للطلب الذي تم ذكره في الرسائل السابقة.
-
-- اجمع الأصناف السابقة مع الموعد الجديد (بكره) وأرسل [KITCHEN_GO] فوراً.
-
-`
-
 أنت "صابر"، المسؤول عن الحجوزات في مطعم (صابر جو سناك). 
 
-⚠️ **قواعد العمل (إجبارية)**:
+🍔 **المنيو الرسمي**:
+الوجبات العائلية: الاقتصادية (7د)، العائلية (10د)، العملاقة (14د).
+وجبات الشاورما صدر: الاقتصادية (6د)، العائلية (9د).
+وجبات فردية: زنجر/سكالوب/برجر (2د)، شاورما عادي (2د)، سوبر (2.75د)، دبل (3.25د)، تربل (4د).
+عروض خاصة: ديناميت (1د)، صاروخ شاورما (1.5د)، قمبلة رمضان (2.25د)، خابور كباب (2د).
+(ملاحظة: تحويل السندويش لوجبة يضيف 1 دينار).
 
-1. **حجز الاستلام**: لا ترفض الحجز أبداً. إذا طلب الزبون استلام، اسأله "أي ساعة حابب يكون طلبك جاهز؟" وثبّت الوقت في المطبخ.
+🚚 **مناطق التوصيل**:
+[1.5د]: صويلح، الدوريات، مجدي مول.
+[2د]: الجبيهة، الجامعة، الرشيد، تلاع العلي، خلدا، الواحة، الصحافة، الحسين.
+[2.5د]: دابوق، المدينة الطبية، أم أذينة، الجاردنز، الشميساني، العبدلي، الرابية.
+[3د]: الفحيص، الدوار (1-8)، عبدون، الصويفية، عين الباشا، التطبيقية، وسط البلد.
+[3.5د]: البيادر، شارع الحرية، الهاشمي، طبربور، الياسمين.
+[4د]: وادي السير، ماركا، سحاب، طريق المطار.
 
-2. **فهم الصور**: أي صورة عرض (مثل المونستر زنجر) أضفها فوراً بسعرها (1د).
-
-3. **التوصيل**: التزم بأسعار المناطق أدناه حرفياً.
-
-
-
-🍔 **المنيو الرسمي**:الوجبات العائلية 
-
-الوجبة الاقتصادية  سناكات 7 دنانير تحتوي على 4 سندويشات 2 سكالوب و 1 برجر 150 غم 1 زنجر و 2 بطاطا و 1 لتر مشروب غازي 
-
-الوجبة العائلية سناكات 10 دنانير 6 تحتوي على 6 سندويشات 2 سكالوب 2 زنجر 2 برجر 150 غم 4 بطاطا 2 لتر مشروب غازي 
-
-الوجبة العملاقة سناكات 14 دينار تحتوي على 9 سندويشات 3 سكالوب 3 زنجر 3 برجر 150 جرام 6 بطاطا 3 لتر مشروب غازي 
-
-وجبة الشاورما صدر الاقتصادية 6 دنانير تحتوي  6 سندويشات شورما ما يعادل 48 قطعه بطاطا عائلي  تائتي    
-
-وجبة الشاورما صدر العائلي ( الاوفر) 9 دنانير 8 سندويشات 72 قطعه  و بطاطا عائلي كبير  تائتي ب صدر
-
-الوجبات الفردية 
-
-وجبة سكالوب ساندويش سكالوب و بطاطا 2 دينار 
-
-وجبة زنجر ساندويش زنجر بطاطا 2 دينار 
-
-وجبة برجر 150 غم ساندويش برجر و بطاطا 2 دينار 
-
-وجبة شاورما عادي 2  دينار 
-
-وجبة شاورما سوبر  2.75 دينار 
-
-وجبة شاورما دبل 3.25 دينار 
-
-وجبة شاورما تربل 4 دينار 
-
-الاضافات 
-
-بطاطا 1 دينار 
-
-بطاطا عائلي 3 نانير 
-
-بطاطا جامبو 6 دنانير 
-
-اضفة جبنة 0.5 دينار 
-
-مشروب غازي 250  مل 35 قرش 
-
-مشروب غازي لتر 50 قرش 
-
-العروض الي نركز عليها اكتر شي و نرفع منها سلة الشراء 
-
-ساندويش ديناميت 45 سم متوسط الحرارة مناسب للاطفال و الكبار 1 دينار 
-
-صاروخ الشاورما 45 سم 1.5 دينار 
-
-قمبلة رمضان ( برجر 250 جرام ) ارتفاعها 17 سم تقريبا بسعر 2.25 
-
-خابور كباب ساندويش كباب طول 45 سم يحتوي على كباب بوزن 200 الى 250 غم و خلصه خاصه بسعر 2 دينار 
-
-الندويشات 
-
-ساندويش  سكالوب 1.5
-
-ساندويش  زنجر 1.5 
-
-ساندويش  برجر 150 غم 1.5 
-
-ساندويش شاورما عادي 1 دينار 
-
-ساندويش شاورما سوبر 1.5 دينار 
-
-ملاحطة لتحويل العروض و السندويشات الى وجبات ضيف دينار 
-
-🚚 **قائمة مناطق التوصيل الكاملة (التزام تام بالأسعار)**:
-
-- **[1.5د]**: صويلح، إشارة الدوريات، مجدي مول.
-
-- **[2د]**: الجبيهة، الجامعة الأردنية، ضاحية الرشيد، تلاع العلي، حي الجامعة، خلدا، دوار الواحة، مشفى الحرمين، نفق الصحافة، جبل الحسين، المستشفى التخصصي.
-
-- **[2.5د]**: الديار، السهل، الروابي، أم أذينة، شارع المدينة الطبية، دابوق، الجاردنز، الشميساني، العبدلي، اللويبدة، الرابية، مجمع الأعمال.
-
-- **[3د]**: الفحيص، الدوار (1-8)، جبل عمان، عبدون، الصويفية، الرونق، عين الباشا، التطبيقية، وسط البلد، حي نزال، جبل النزهة، طريق المطار، مستشفى البشير، البقعة.
-
-- **[3.5د]**: البيادر، شارع الحرية، الهاشمي الشمالي، الهاشمي الجنوبي، طبربور، ضاحية الياسمين.
-
-- **[4د]**: وادي السير، ماركا الشمالية، ماركا الجنوبية، خريبة السوق، اليادودة، البنيات، القويسمة، أبو علندا، جبل المنارة، مرج الحمام، سحاب، طريق المطار (بعد جسر مادبا).
-
-
-
-⚠️ **عند التأكيد (استلام أو توصيل)**:
-
-أرسل [KITCHEN_GO] متبوعاً بـ:
-
-- نوع الطلب + **وقت الاستلام المحدد**.
-
-- ملخص الأصناف والمجموع.
-
-- بيانات الزبون (الاسم، المنطقة، الرقم).
-
+⚠️ **قواعد صارمة للإرسال للمطبخ**:
+1. لا ترسل كود [KITCHEN_GO] إلا بعد أخذ (الاسم، رقم الهاتف 07، الموقع أو كلمة استلام).
+2. عند توفر البيانات، اكتب [KITCHEN_GO] ثم أتبعه بتنسيق الطلب التالي:
+   🔔 طلب جديد!
+   الاسم: [اسم الزبون]
+   الرقم: [رقم الزبون]
+   العنوان: [المنطقة أو استلام]
+   الطلب: [الأصناف]
+   الإجمالي: [المجموع الكلي]
 `;
-
 };
 
-
-
-/* ================= المحرك الرئيسي ================= */
-
+/* ================= المحرك الرئيسي المصلح ================= */
 app.post("/webhook", async (req, res) => {
-
   res.sendStatus(200);
-
   const body = req.body;
-
+  
   if (body.typeWebhook !== "incomingMessageReceived" && body.typeWebhook !== "incomingFileMessageReceived") return;
 
-
-
   const messageId = body.idMessage;
-
   if (PROCESSED_MESSAGES.has(messageId)) return;
-
   PROCESSED_MESSAGES.add(messageId);
 
-
-
   const chatId = body.senderData?.chatId;
-
   if (!chatId || chatId.endsWith("@g.us")) return;
 
-
-
- // قبل إرسال الرسالة لـ AI، تأكد أنك لا تصفر الذاكرة يدوياً
-
-if (!SESSIONS[chatId]) {
-
-    SESSIONS[chatId] = { history: [] };
-
-}
-
-// لا تضع أي رسالة ترحيب تلقائية (Hardcoded) هنا، اترك الـ AI هو من يقرر بناءً على الذاكرة.
+  if (!SESSIONS[chatId]) SESSIONS[chatId] = { history: [] };
+  const session = SESSIONS[chatId];
 
   let userMessage = "";
-
   if (body.messageData?.typeMessage === "textMessage" || body.messageData?.typeMessage === "extendedTextMessage") {
-
     userMessage = body.messageData.textMessageData?.textMessage || body.messageData.extendedTextMessageData?.text;
-
   } else if (body.typeWebhook === "incomingFileMessageReceived" && body.messageData.fileMessageData.mimeType.includes("image")) {
-
     userMessage = await analyzeImage(body.messageData.fileMessageData.downloadUrl);
-
   }
-
-
 
   if (!userMessage) return;
 
-
-
   try {
-
-  const aiResponse = await axios.post("https://api.openai.com/v1/chat/completions", {
-
-    model: "gpt-4o",
-
-    messages: [
-
+    const aiResponse = await axios.post("https://api.openai.com/v1/chat/completions", {
+      model: "gpt-4o",
+      messages: [
         { role: "system", content: getSystemPrompt() },
-
-        // تأكد من رفع الرقم هنا إلى 15 أو 20 رسالة
-
-        ...session.history.slice(-20), 
-
+        ...session.history.slice(-15),
         { role: "user", content: userMessage }
-
-    ],
-
-    temperature: 0 // صفر لضمان الدقة ومنع الاجتهاد
-
-}, { headers: { Authorization: `Bearer ${SETTINGS.OPENAI_KEY}` } });
-
-
-
-let reply = aiResponse.data.choices[0].message.content;
-
-    if (reply.includes("[KITCHEN_GO]")) {
-        // 1. الفحص البرمجي الصارم للبيانات
-        const hasPhone = /(07[789]\d{7})/.test(reply) || reply.includes("07");
-        const hasName = reply.includes("الاسم:") && !reply.includes("[اسم الزبون]");
-
-        if (!hasPhone || !hasName) {
-            // إذا نقصت البيانات، نطلبها ولا نرسل للمطبخ
-            reply = "على راسي يا غالي، بس يا ريت تبعتلي (الاسم ورقم التلفون) عشان أقدر أعتمد الطلب وأبعته للمطبخ فوراً.";
-        } else {
-            // 2. إذا البيانات كاملة -> نستخرج الفاتورة التفصيلية
-            const finalInvoice = reply.split("[KITCHEN_GO]")[1].trim();
-
-            // إرسال الفاتورة للمطبخ
-            await sendWA(SETTINGS.KITCHEN_GROUP, finalInvoice);
-            
-            // إرسال الفاتورة "نفسها" للزبون لتأكيد الاستلام
-            await sendWA(chatId, finalInvoice);
-
-            // حفظ الجلسة ومسحها بعد 24 ساعة لضمان الاستمرارية
-            SESSIONS[chatId].history.push({ role: "user", content: userMessage }, { role: "assistant", content: reply });
-            setTimeout(() => { if (SESSIONS[chatId]) delete SESSIONS[chatId]; }, 86400000);
-            return; // إنهاء العملية هنا لمنع التكرار
-        }
-    }
-
-    // إرسال الرد العادي (الفاتورة المبدئية أو الدردشة)
-    await sendWA(chatId, reply);
-    SESSIONS[chatId].history.push({ role: "user", content: userMessage }, { role: "assistant", content: reply });
-
-  } catch (err) { 
-      console.error("Error:", err.message); 
-  }
-let reply = aiResponse.data.choices[0].message.content;
-
-/* --- استبدل المنطقة التي تلي تعريف reply بهذا الكود --- */
-
-    
+      ],
+      temperature: 0
+    }, { headers: { Authorization: `Bearer ${SETTINGS.OPENAI_KEY}` } });
 
     let reply = aiResponse.data.choices[0].message.content;
 
-
-
+    // --- معالجة الإرسال للمطبخ (إصلاح مشكلة الرسائل الفارغة) ---
     if (reply.includes("[KITCHEN_GO]")) {
+      const parts = reply.split("[KITCHEN_GO]");
+      const userReply = parts[0].trim(); // النص الذي يذهب للزبون
+      const kitchenOrder = parts[1]?.trim(); // النص الذي يذهب للمطبخ
 
-        // 1. الفحص الذكي: هل توجد بيانات حقيقية (اسم ورقم هاتف أردني)؟
+      const hasPhone = /(07[789]\d{7})/.test(reply);
+      const hasName = reply.includes("الاسم") && !reply.includes("[اسم الزبون]");
 
-        const hasPhone = /(07[789]\d{7})/.test(reply) || reply.includes("07");
-
-        const hasName = reply.includes("الاسم:") && !reply.includes("[اسم الزبون]") && reply.split("الاسم:")[1].trim().length > 2;
-
-
-
-        if (!hasPhone || !hasName) {
-
-            // إذا حاول البوت الإرسال والبيانات ناقصة، نغير الرد لطلب البيانات
-
-            reply = "على راسي يا غالي، بس يا ريت تبعتلي (الاسم ورقم التلفون) عشان أقدر أبعت الطلب للمطبخ ويجهز بأسرع وقت.";
-
-        } else {
-
-            // 2. إذا البيانات كاملة -> يتم إرسال الجزء الخاص بالمطبخ فقط للجروب
-
-            const orderParts = reply.split("[KITCHEN_GO]");
-
-            const kitchenOrder = orderParts[1].trim(); 
-
-
-
-            // إرسال لجروب المطبخ
-
-            await sendWA(SETTINGS.KITCHEN_GROUP, `🔔 *طلب جديد مؤكد*:\n${kitchenOrder}`);
-
-            
-
-            // إرسال تأكيد نهائي للزبون
-
-            await sendWA(chatId, "أبشر، طلبك اعتمدناه وصار بالمطبخ! نورت مطعم صابر 🙏");
-
-
-
-            // حفظ في الذاكرة ومسح الجلسة بعد 24 ساعة
-
-            session.history.push({ role: "user", content: userMessage }, { role: "assistant", content: reply });
-
-            setTimeout(() => { if (SESSIONS[chatId]) delete SESSIONS[chatId]; }, 86400000);
-
-            return; // ننهي الدالة هنا عشان ما يرجع يبعت reply مرة ثانية بالأسفل
-
-        }
-
+      if (!hasPhone || !hasName || !kitchenOrder) {
+        reply = "على راسي يا غالي، بس ياريت تعطيني الاسم ورقم التلفون عشان أقدر أعتمد الطلب وأبعته للمطبخ فوراً.";
+        await sendWA(chatId, reply);
+      } else {
+        // إرسال التأكيد للزبون
+        await sendWA(chatId, "أبشر يا غالي، طلبك اعتمدناه وصار بالمطبخ! نورت مطعم صابر 🙏");
+        // إرسال التفاصيل الكاملة للمطبخ
+        await sendWA(SETTINGS.KITCHEN_GROUP, `✅ *طلب مؤكد من البوت*:\n\n${kitchenOrder}`);
+        
+        // مسح الجلسة بعد 24 ساعة
+        setTimeout(() => { if (SESSIONS[chatId]) delete SESSIONS[chatId]; }, 86400000);
+        return;
+      }
+    } else {
+      await sendWA(chatId, reply);
     }
-
-
-
-    // إرسال الرد العادي للزبون (سواء كان الفاتورة المبدئية أو طلب البيانات)
-
-    await sendWA(chatId, reply);
 
     session.history.push({ role: "user", content: userMessage }, { role: "assistant", content: reply });
-
-    
-
-    /* --- نهاية التعديل --- */
-
-    // --- بداية التعديل الجديد ---
-
-    if (reply.includes("[KITCHEN_GO]")) {
-
-        // فحص وجود البيانات الأساسية (الاسم والرقم الأردني)
-
-        const hasPhone = /(07[789]\d{7})/.test(reply) || reply.includes("07");
-
-        const hasName = reply.includes("الاسم") && !reply.includes("[اسم الزبون]");
-
-
-
-        if (!hasPhone || !hasName) {
-
-            // إذا حاول البوت الإرسال والبيانات ناقصة، نجبره على طلبها
-
-            reply = "على راسي يا غالي، بس يا ريت تبعتلي (الاسم ورقم التلفون) عشان أثبت الطلب وأبعته للمطبخ فوراً.";
-
-        } else {
-
-            // إذا البيانات كاملة، يتم الإرسال للمطبخ بالتنسيق اللي طلبته
-
-            const orderDetails = reply.split("[KITCHEN_GO]")[1].trim();
-
-            
-
-            // إرسال لجروب المطبخ
-
-            await sendWA(SETTINGS.KITCHEN_GROUP, orderDetails); 
-
-            
-
-            // إرسال تأكيد للزبون
-
-            await sendWA(chatId, "أبشر، طلبك اعتمدناه وصار بالمطبخ! نورت مطعم صابر 🙏");
-
-
-
-            // مسح الجلسة بعد 24 ساعة لضمان عدم نسيان "بكره"
-
-            setTimeout(() => {
-
-                if (SESSIONS[chatId]) delete SESSIONS[chatId];
-
-            }, 86400000); 
-
-
-
-            return; // إنهاء الدالة هنا لمنع إرسال الرد مرتين
-
-        }
-
-    }
-
-    // --- نهاية التعديل الجديد ---
-
-
-
-    // إرسال الرد العادي للزبون (سواء كان الفاتورة المبدئية أو طلب البيانات)
-
-    await sendWA(chatId, reply);
-
-    if (reply.includes("[KITCHEN_GO]")) {
-
-      const finalOrder = reply.split("[KITCHEN_GO]")[1].trim();
-
-      await sendWA(SETTINGS.KITCHEN_GROUP, `✅ *طلب جديد مؤكد*:\n${finalOrder}`);
-
-      await sendWA(chatId, "أبشر، طلبك اعتمدناه وصار بالمطبخ! نورت مطعم صابر 🙏");
-
-// داخل شرط if (reply.includes("[KITCHEN_GO]"))
-
-if (reply.includes("[KITCHEN_GO]")) {
-
-    const finalOrder = reply.split("[KITCHEN_GO]")[1].trim();
-
-    await sendWA(SETTINGS.KITCHEN_GROUP, `✅ *طلب جديد مؤكد*:\n${finalOrder}`);
-
-    await sendWA(chatId, "أبشر، طلبك اعتمدناه وصار بالمطبخ! نورت مطعم صابر 🙏");
-
-
-
-    // تعديل المسح ليكون بعد 24 ساعة بدلاً من المسح الفوري
-
-    // 86400000 مللي ثانية = 24 ساعة
-
-    setTimeout(() => {
-
-        if (SESSIONS[chatId]) {
-
-            delete SESSIONS[chatId];
-
-            console.log(`Session cleared for ${chatId} after 24 hours.`);
-
-        }
-
-    }, 86400000); 
-
-
-
-    return; // إنهاء المعالجة هنا
-
-}      return;
-
-    }
-
-
-
-    await sendWA(chatId, reply);
-
-    session.history.push({ role: "user", content: userMessage }, { role: "assistant", content: reply });
-
-
 
   } catch (err) { console.error("Error:", err.message); }
-
 });
 
-
-
-/* ================= تحليل الصور ================= */
-
+/* ================= وظائف مساعدة ================= */
 async function analyzeImage(url) {
-
   try {
-
     const res = await axios.post("https://api.openai.com/v1/chat/completions", {
-
       model: "gpt-4o",
-
       messages: [{ role: "user", content: [
-
-        { type: "text", text: "استخرج الطلب من الصورة لشرائه فوراً بسعر المنيو." },
-
+        { type: "text", text: "استخرج اسم الوجبة من صورة العرض هذه." },
         { type: "image_url", image_url: { url: url } }
-
       ]}]
-
     }, { headers: { Authorization: `Bearer ${SETTINGS.OPENAI_KEY}` } });
-
-    return `[الزبون اختار هذا العرض من الصورة]: ${res.data.choices[0].message.content}`;
-
+    return `[الزبون أرسل صورة عرض]: ${res.data.choices[0].message.content}`;
   } catch (err) { return "صورة عرض"; }
-
 }
-
-
 
 async function sendWA(chatId, message) {
-
-  try { await axios.post(`${SETTINGS.API_URL}/sendMessage/${SETTINGS.GREEN_TOKEN}`, { chatId, message }); } catch (err) {}
-
+  try {
+    await axios.post(`${SETTINGS.API_URL}/sendMessage/${SETTINGS.GREEN_TOKEN}`, { chatId, message });
+  } catch (err) { console.error("WA Send Error:", err.message); }
 }
 
-
-
-app.listen(3000, () => console.log("Saber Bot - Complete Zones Live!"));
+app.listen(3000, () => console.log("Saber Bot Fixed & Kitchen Group Ready!"));
