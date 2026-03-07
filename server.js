@@ -10,7 +10,7 @@ const SETTINGS = {
     ID_INSTANCE: process.env.ID_INSTANCE,
     KITCHEN_GROUP: "120363407952234395@g.us",
     API_URL: `https://7103.api.greenapi.com/waInstance${process.env.ID_INSTANCE}`,
-    // تأكد إنك حاطط البرومبت في الـ Environment Variables بدون فراغات زائدة
+    // هنا يتم سحب نص البرومبت الطويل (المنيو والمناطق) من إعدادات السيرفر
     SYSTEM_PROMPT: process.env.SYSTEM_PROMPT 
 };
 
@@ -30,15 +30,14 @@ app.post("/webhook", async (req, res) => {
     let userText = (body.messageData?.textMessageData?.textMessage || 
                    body.messageData?.extendedTextMessageData?.text || "").trim();
 
-    // 1. استجابة فورية للموقع (عشان ما يعلق حتى لو الـ API تعطل)
-    const quickKeys = ["وينكم", "الموقع", "لوكيشن", "وين المحل"];
-    if (quickKeys.some(k => userText.includes(k))) {
-        await sendWA(chatId, "محلنا بعمان - شارع الجامعة الأردنية - طلوع هافانا. وهذا اللوكيشن يا غالي: https://maps.app.goo.gl/NdFQY67DEnsWQdKZ9 📍");
-        return;
-    }
-
     try {
-        // 2. منطق التأكيد الفوري (صورة 1)
+        // 1. بروتوكول الموقع الفوري (حل مشكلة التعليق في الصور 3 و 4)
+        if (/^(وينكم|الموقع|لوكيشن|وين المحل)$/i.test(userText)) {
+            await sendWA(chatId, "محلنا بعمان - شارع الجامعة الأردنية - طلوع هافانا. وهذا اللوكيشن يا غالي: https://maps.app.goo.gl/NdFQY67DEnsWQdKZ9 📍");
+            return;
+        }
+
+        // 2. منطق التأكيد للمطبخ (صورة 1 و 2)
         if (/^(تم|تمام|ايوا|ok)$/i.test(userText) && session.lastKitchenMsg) {
             await sendWA(SETTINGS.KITCHEN_GROUP, session.lastKitchenMsg);
             await sendWA(chatId, "أبشر يا غالي، طلبك اعتمدناه وصار بالمطبخ! نورت مطعم صابر 🙏");
@@ -46,35 +45,39 @@ app.post("/webhook", async (req, res) => {
             return;
         }
 
-        // 3. استدعاء OpenAI مع تنظيف الـ History لمنع خطأ 400
+        // 3. استدعاء OpenAI مع مراعاة حجم البرومبت
         const aiResponse = await axios.post(
             "https://api.openai.com/v1/chat/completions",
             {
-                model: "gpt-4o-mini",
+                model: "gpt-4o-mini", // أفضل موديل للتعامل مع المنيو الطويل بسرعة
                 messages: [
                     { role: "system", content: SETTINGS.SYSTEM_PROMPT },
-                    ...session.history.slice(-4), // تقليل الذاكرة لرسائل أقل عشان حجم البرومبت كبير
+                    ...session.history.slice(-4), // تقليل التاريخ لمنع خطأ 400 بسبب ضخامة البرومبت
                     { role: "user", content: userText }
                 ],
                 temperature: 0
             },
-            { headers: { Authorization: `Bearer ${SETTINGS.OPENAI_KEY}` }, timeout: 30000 }
+            { headers: { Authorization: `Bearer ${SETTINGS.OPENAI_KEY}` }, timeout: 25000 }
         );
 
         let reply = aiResponse.data.choices[0].message.content;
 
+        // 4. فرز الرد (مطبخ أم زبون)
         if (reply.includes("[KITCHEN_GO]")) {
-            session.lastKitchenMsg = reply.split("[KITCHEN_GO]")[1].trim();
-            await sendWA(chatId, reply.split("[KITCHEN_GO]")[0].trim() + "\n\nأكتب 'تم' للتأكيد ✅");
+            const parts = reply.split("[KITCHEN_GO]");
+            session.lastKitchenMsg = parts[1].trim();
+            await sendWA(chatId, parts[0].trim() + "\n\nأكتب 'تم' للتأكيد ✅");
         } else {
             await sendWA(chatId, reply);
         }
 
+        // تحديث السجل
         session.history.push({ role: "user", content: userText }, { role: "assistant", content: reply });
+        if (session.history.length > 8) session.history.splice(0, 2);
 
     } catch (err) {
-        console.error("❌ API Error:", err.response?.data || err.message);
-        // رسالة بديلة ذكية في حالة الـ 400
+        console.error("❌ API ERROR 400:", err.response?.data || err.message);
+        // رسالة "ضغط الخط" في حال فشل الـ API (صورة 3)
         await sendWA(chatId, "أبشر يا غالي، بس ارجع ابعث رسالتك كمان مرة، كان في ضغط عالخط 🙏");
     }
 });
@@ -85,4 +88,4 @@ async function sendWA(chatId, message) {
     } catch (e) {}
 }
 
-app.listen(3000, () => console.log("🚀 Saber Engine is Stable Now!"));
+app.listen(3000, () => console.log("🤖 Saber Engine Live & Ready!"));
