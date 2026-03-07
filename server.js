@@ -70,7 +70,7 @@ const getSystemPrompt = () => {
 };
 
 /* ================= المحرك الرئيسي ================= */
-/* ================= المحرك الرئيسي - نسخة إصلاح الطلب الفاضي ================= */
+/* ================= المحرك الرئيسي - نسخة إصلاح الاستلام والطلب الفارغ ================= */
 app.post("/webhook", async (req, res) => {
   res.sendStatus(200);
   const body = req.body;
@@ -83,7 +83,7 @@ app.post("/webhook", async (req, res) => {
   const now = Date.now();
 
   if (!SESSIONS[chatId]) {
-    SESSIONS[chatId] = { history: [], waitingConfirmation: false, lastActivity: now, pendingOrderData: null };
+    SESSIONS[chatId] = { history: [], waitingConfirmation: false, lastActivity: now, pendingOrderData: null, orderType: "delivery" };
   }
   const session = SESSIONS[chatId];
   session.lastActivity = now;
@@ -101,42 +101,48 @@ app.post("/webhook", async (req, res) => {
 
     let reply = aiResponse.data.choices[0].message.content;
 
-    // 1. استخراج الفاتورة أو الطلب إذا وجد [KITCHEN_GO] في الرد الحالي
+    // 1. التقاط البيانات فور ظهور [KITCHEN_GO] لأول مرة
     if (reply.includes("[KITCHEN_GO]")) {
         const parts = reply.split("[KITCHEN_GO]");
-        session.pendingOrderData = parts[1].trim(); // تخزين تفاصيل الأكل
-        reply = parts[0].trim(); // الرد اللي بروح للزبون
+        session.pendingOrderData = parts[1].trim(); 
+        reply = parts[0].trim();
+        
+        // تحديد نوع الطلب وحفظه في السشن
+        if (reply.includes("استلام") || userMessage.includes("استلام")) {
+            session.orderType = "pickup";
+        } else {
+            session.orderType = "delivery";
+        }
     }
 
     // فحص الهاتف والاسم
     const phoneRegex = /(07[789]\d{7})/;
     const hasPhone = phoneRegex.test(userMessage) || phoneRegex.test(reply) || session.history.some(m => phoneRegex.test(m.content));
     
-    // كلمات التأكيد
-    const confirmationWords = ["اعتمد", "نعم", "اوكي", "أكيد", "اه", "يلا", "تم", "ماشي", "توكل", "ثبت", "هات", "انجز", "توصيل", "أوك", "اوك"];
+    // كلمات التأكيد الموسعة
+    const confirmationWords = ["اعتمد", "نعم", "اوكي", "أكيد", "اه", "يلا", "تم", "ماشي", "توكل", "ثبت", "هات", "انجز", "توصيل", "أوك", "اوك", "استلام"];
     const isConfirmed = confirmationWords.some(word => userMessage.toLowerCase().includes(word));
 
-    // 2. منطق الإرسال للمطبخ (التأكد من وجود بيانات)
+    // 2. التنفيذ الفعلي للإرسال
     if (session.pendingOrderData) {
       
-      if (!hasPhone) {
-        reply = "على راسي يا نشمي، بس زودني بـ (الاسم ورقم التلفون) عشان أرمي الطلب عالمطبخ فوراً.";
+      // إذا كان توصيل وما في رقم، بنطلب الرقم
+      if (session.orderType === "delivery" && !hasPhone) {
+        reply = "على راسي يا نشمي، بس ابعتلي (الاسم ورقم التلفون) عشان أثبت الطلب وأرميه عالمطبخ فوراً.";
       } 
+      // إرسال للمطبخ إذا تأكد الطلب أو توفرت البيانات
       else if (isConfirmed || (hasPhone && session.waitingConfirmation)) {
         
-        let kitchenHeader = "✅ طلب جديد مؤكد:\n";
-        if (userMessage.includes("استلام") || reply.includes("استلام")) kitchenHeader = "🏪 طلب استلام:\n";
+        let kitchenHeader = session.orderType === "pickup" ? "🏪 طلب استلام من المطعم:\n" : "✅ طلب توصيل جديد:\n";
         
-        // التعديل الجوهري: نرسل الهيدر + البيانات المخزنة
-        const finalOrder = kitchenHeader + session.pendingOrderData;
-        
-        await sendWA(SETTINGS.KITCHEN_GROUP, finalOrder);
+        // إرسال البيانات المحفوظة مسبقاً (عشان ما تطلع فاضية)
+        await sendWA(SETTINGS.KITCHEN_GROUP, kitchenHeader + session.pendingOrderData);
         
         reply = "أبشر، طلبك اعتمدناه وصار بالمطبخ! نورت مطعم صابر 🙏";
         
-        // تصفير البيانات بعد الإرسال الناجح
+        // تصفير الجلسة
         session.waitingConfirmation = false;
-        session.pendingOrderData = null; 
+        session.pendingOrderData = null;
       } 
       else {
         session.waitingConfirmation = true;
