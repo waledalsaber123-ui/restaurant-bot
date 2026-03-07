@@ -86,21 +86,11 @@ app.post("/webhook", async (req, res) => {
   if (body.typeWebhook !== "incomingMessageReceived") return;
 
   const chatId = body.senderData?.chatId;
-  let userContent = [];
+  let currentText = body.messageData?.textMessageData?.textMessage || 
+                body.messageData?.extendedTextMessageData?.text || "";
+  let imageUrl = body.messageData?.fileMessageData?.downloadUrl || null;
 
-  // التعامل مع النصوص
-  if (body.messageData?.textMessageData?.textMessage) {
-    userContent.push({ type: "text", text: body.messageData.textMessageData.textMessage });
-  } 
-  // التعامل مع الصور
-  else if (body.messageData?.fileMessageData?.downloadUrl) {
-    userContent.push({ 
-      type: "image_url", 
-      image_url: { url: body.messageData.fileMessageData.downloadUrl } 
-    });
-  }
-
-  if (!chatId || chatId.includes("@g.us") || userContent.length === 0) return;
+  if (!chatId || chatId.includes("@g.us") || (!currentText && !imageUrl)) return;
 
   if (!SESSIONS[chatId]) {
     SESSIONS[chatId] = { history: [], lastActive: Date.now() };
@@ -108,40 +98,50 @@ app.post("/webhook", async (req, res) => {
 
   const session = SESSIONS[chatId];
 
+  // تجهيز الرسالة الحالية (نص + صورة إن وجدت)
+  let currentMessageContent = [];
+  if (currentText) currentMessageContent.push({ type: "text", text: currentText });
+  if (imageUrl) currentMessageContent.push({ type: "image_url", image_url: { url: imageUrl } });
+
   try {
     const ai = await axios.post("https://api.openai.com/v1/chat/completions", {
-      model: "gpt-4o", // يدعم فهم الصور واحترافي جداً
+      model: "gpt-4o",
       messages: [
         { role: "system", content: SYSTEM_PROMPT },
-        ...session.history.slice(-30), // ذاكرة لـ 30 رسالة
-        { role: "user", content: userContent }
+        ...session.history.slice(-15), // تقليل الذاكرة لـ 15 رسالة لضمان السرعة وعدم الخطأ
+        { role: "user", content: currentMessageContent }
       ],
-      temperature: 0.2
+      temperature: 0.2,
+      max_tokens: 800 // تحديد الحد لضمان عدم انقطاع الرد
     }, {
-      headers: { Authorization: `Bearer ${SETTINGS.OPENAI_KEY}` }
+      headers: { Authorization: `Bearer ${SETTINGS.OPENAI_KEY}` },
+      timeout: 25000 // زيادة وقت الانتظار لـ 25 ثانية
     });
 
     let reply = ai.data.choices[0].message.content;
 
     if (reply.includes("[KITCHEN_GO]")) {
       const orderClean = reply.replace("[KITCHEN_GO]", "✅ *طلب جديد مؤكد*").trim();
-      
-      // إرسال للمطبخ
       await sendWA(SETTINGS.KITCHEN_GROUP, orderClean);
-      
-      // إرسال للزبون مع رقم التواصل
-      const finalMsg = `${orderClean}\n\n*ملاحظة:* لأي استفسار أو تعديل بعد الطلب، تواصل معنا على: ${SETTINGS.REST_PHONE}`;
+      const finalMsg = `${orderClean}\n\n*ملاحظة:* لأي استفسار تواصل معنا على: ${SETTINGS.REST_PHONE}`;
       await sendWA(chatId, finalMsg);
-      
       delete SESSIONS[chatId];
       return;
     }
 
     await sendWA(chatId, reply);
-    session.history.push({ role: "user", content: userContent }, { role: "assistant", content: reply });
+    
+    // حفظ النصوص فقط في الذاكرة لتجنب ثقل البيانات
+    session.history.push(
+      { role: "user", content: currentText || "أرسل صورة" }, 
+      { role: "assistant", content: reply }
+    );
 
   } catch (err) {
-    await sendWA(chatId, "أبشر يا غالي، صار ضغط بسيط عندي. ممكن ترسل رسالتك مرة ثانية؟ 🙏");
+    console.error("OpenAI Error:", err.response?.data || err.message);
+    // إذا تكرر الخطأ، نقوم بتفريغ الذاكرة جزئياً لإراحة البوت
+    session.history = session.history.slice(-2);
+    await sendWA(chatId, "أبشر يا غالي، صار عندي ضغط بسيط. هسا صرت معك، شو كنت حابب تطلب؟ 🙏");
   }
 });
 
