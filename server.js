@@ -33,6 +33,10 @@ const getSystemPrompt = () => {
 3. زين كاش.
 
 أنت "صابر"، المسؤول عن الحجوزات في مطعم (صابر جو سناك). 
+;
+};
+const getMenu = () => {
+  return `
 🍔 **المنيو الرسمي**:
 (هنا اترك المنيو ومناطق التوصيل كما هي في كودك الأصلي تماماً دون تغيير)
 ⚠️ **قواعد العمل (إجبارية)**:
@@ -72,6 +76,8 @@ const getSystemPrompt = () => {
 ساندويش شاورما عادي 1 دينار 
 ساندويش شاورما سوبر 1.5 دينار 
 ملاحطة لتحويل العروض و السندويشات الى وجبات ضيف دينار 
+  ;
+};
 🚚 **قائمة مناطق التوصيل الكاملة (التزام تام بالأسعار)**:
 🚚 **قائمة أسعار التوصيل حسب المنطقة**:
 
@@ -144,7 +150,7 @@ app.post("/webhook", async (req, res) => {
     const aiResponse = await axios.post("https://api.openai.com/v1/chat/completions", {
       model: "gpt-4o",
       messages: [
-        { role: "system", content: getSystemPrompt() },
+        { role: "system", content: SystemPrompt() },
         ...session.history.slice(-15),
         { role: "user", content: userMessage }
       temperature: 0
