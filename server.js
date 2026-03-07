@@ -95,7 +95,6 @@ const getSystemPrompt = () => {
 };
 
 /* ================= المحرك الرئيسي المصلح ================= */
-/* ================= المحرك الرئيسي المصلح 100% ================= */
 app.post("/webhook", async (req, res) => {
   res.sendStatus(200);
   const body = req.body;
@@ -122,25 +121,7 @@ app.post("/webhook", async (req, res) => {
     }, { headers: { Authorization: `Bearer ${SETTINGS.OPENAI_KEY}` } });
 
     let reply = aiResponse.data.choices[0].message.content;
-    // حالة 1: حجز بموعد (الميزة الجديدة)
-    if (reply.includes("[RESERVATION_GO]")) {
-      const resData = reply.split("[RESERVATION_GO]")[1]?.trim();
-      await sendWA(SETTINGS.KITCHEN_GROUP, `📅 **حجز جديد مؤكد**:\n${resData}`);
-      await sendWA(chatId, "أبشر، ثبتنا الحجز وبنستناك على الموعد يا غالي! نورت صابر 🙏");
-      return;
-    }
 
-    // حالة 2: طلب أكل فوري (توصيل أو استلام)
-    if (reply.includes("[KITCHEN_GO]")) {
-      const orderData = reply.split("[KITCHEN_GO]")[1]?.trim();
-      await sendWA(SETTINGS.KITCHEN_GROUP, `🔥 **طلب مطبخ جديد**:\n${orderData}`);
-      await sendWA(chatId, "أبشر يا غالي، طلبك صار بالمطبخ وع عيني! 🙏");
-      return;
-    }
-
-    // الرد الطبيعي إذا لسه في نقاش أو معلومات ناقصة
-    await sendWA(chatId, reply);
-    session.history.push({ role: "user", content: userMessage }, { role: "assistant", content: reply });
     // فحص إذا الرد يحتوي على كود المطبخ
     if (reply.includes("[KITCHEN_GO]")) {
       const parts = reply.split("[KITCHEN_GO]");
