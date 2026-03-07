@@ -11,13 +11,16 @@ const SETTINGS = {
   KITCHEN_GROUP: "120363407952234395@g.us", 
   API_URL: `https://7103.api.greenapi.com/waInstance${process.env.ID_INSTANCE}`
 };
-
 const SESSIONS = {};
 
-// دالة لاستخراج رقم الهاتف الأردني تلقائياً
-const extractPhone = (text) => {
-  const match = text.match(/(07[789]\d{7})/);
-  return match ? match[0] : null;
+// دالة لحساب المجموع مع التوصيل
+const calculateTotal = (items, zonePrice) => {
+  let subtotal = items.reduce((sum, item) => sum + (parseFloat(item.price) || 0), 0);
+  return {
+    subtotal: subtotal.toFixed(2),
+    delivery: zonePrice.toFixed(2),
+    total: (subtotal + zonePrice).toFixed(2)
+  };
 };
 /* ================= قائمة الطعام الكاملة مع التفاصيل ================= */
 const MENU_ITEMS = {
@@ -57,14 +60,23 @@ const MENU_ITEMS = {
 };
 
 // دالة لبناء الـ system prompt
-const getSystemPrompt = () => {
-  const menuList = Object.entries(MENU_ITEMS)
-    .map(([key, item]) => `- ${item.name}: ${item.price} د.أ`)
-    .join('\n');
-    
-  const zonesList = Object.entries(DELIVERY_ZONES)
-    .map(([zone, price]) => `- ${zone}: ${price} د.أ`)
-    .join('\n');
+const getSystemPrompt = (session) => {
+  return `أنت صابر من مطعم "صابر جو سناك". 
+  
+  ⚠️ **قاعدة ذهبية**: عند تلخيص الطلب للزبون، يجب أن تذكر التفاصيل كالتالي:
+  - الأصناف وأسعارها.
+  - سعر التوصيل بناءً على منطقته.
+  - المجموع الكلي (سعر الأكل + التوصيل).
+  - الاسم والرقم والعنوان.
+  - مدة التوصيل 45 دقيقه 
+  **البيانات المتوفرة حالياً**:
+  - الاسم: ${session.userName || "مطلوب"}
+  - الرقم: ${session.userPhone || "مطلوب"}
+  - المنطقة: ${session.userZone || "مطلوب"}
+  - سعر توصيل المنطقة: ${session.deliveryFee || 0} د.أ
+
+  بعد تلخيص الطلب بهذا الشكل، اسأل الزبون: "هل البيانات صحيحة؟ أكتب تم للتأكيد".`;
+};
 
   return `أنت "صابر"، المساعد الذكي لمطعم "صابر جو سناك" في عمان.
 
@@ -151,8 +163,37 @@ app.post("/webhook", async (req, res) => {
   
   if (!userMessage) return;
 
-  console.log(`📩 رسالة من ${chatId}: ${userMessage}`);
+console.log(`📩 رسالة من ${chatId}: ${userMessage}`);
 
+// --- ⬇️ حط الكود الجديد هون ⬇️ ---
+if (session.pendingOrder && (userMessage.includes("استلام") || userMessage.includes("بالمحل"))) {
+    session.pendingOrder.type = "pickup";
+    session.pendingOrder.deliveryFee = 0;
+    session.userAddress = "استلام من المطعم";
+    session.userZone = "استلام";
+    
+    // عشان يخصم سعر التوصيل من المجموع فوراً
+    if (session.pendingOrder.subtotal) {
+        session.pendingOrder.total = session.pendingOrder.subtotal;
+    }
+}
+// --- ⬆️ نهاية الكود الجديد ⬆️ ---
+
+try {
+// ... سطر 168 (بكمل الكود الطبيعي)
+// --- ضيف الكود هون ---
+if (session.pendingOrder && (userMessage.includes("استلام") || userMessage.includes("بالمحل"))) {
+    session.pendingOrder.type = "pickup";
+    session.pendingOrder.deliveryFee = 0;
+    session.userAddress = "استلام من المطعم";
+    session.userZone = "استلام";
+    // تحديث المجموع الكلي ليصبح بدون توصيل
+    session.pendingOrder.total = session.pendingOrder.subtotal; 
+}
+// --------------------
+
+try {
+// ... (باقي الكود بكمل من سطر 169)
   try {
     // التحقق من التأكيد
     const isConfirmation = /^(تم|ok|اوكي|confirm|yes|اكيد|ايوا|تمام|okay|yep|yeah)$/i.test(userMessage.trim());
