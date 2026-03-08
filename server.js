@@ -178,17 +178,40 @@ app.post("/webhook", async (req, res) => {
 if (req.body.object === "page") {
 
   for (const entry of req.body.entry) {
-    for (const event of entry.messaging) {
 
-      const senderId = event.sender.id;
+    // Messenger
+    if (entry.messaging) {
+      for (const event of entry.messaging) {
 
-      if (event.message && event.message.text) {
-        const userMessage = event.message.text;
+        const senderId = event.sender.id;
 
-await handleUserMessage(senderId, userMessage, "facebook");      }
+        if (event.message && event.message.text) {
+          await handleUserMessage(senderId, event.message.text, "facebook");
+        }
 
+      }
     }
+
+    // Instagram
+    if (entry.changes) {
+      for (const change of entry.changes) {
+
+        if (change.value.messages) {
+          const message = change.value.messages[0];
+
+          const senderId = message.from.id;
+          const userMessage = message.text.body;
+
+          await handleUserMessage(senderId, userMessage, "facebook");
+        }
+
+      }
+    }
+
   }
+
+  return res.sendStatus(200);
+}
 
   return res.sendStatus(200);
 }
