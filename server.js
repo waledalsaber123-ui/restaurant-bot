@@ -155,7 +155,7 @@ const getSystemPrompt = () => {
 2. إذا نقص أي عنصر (مثلاً الموعد أو الاسم)، اطلبه من الزبون بلطف قبل عرض ملخص الطلب.
 3. حساب المجموع الإجمالي = (سعر الأصناف + أجور التوصيل).
 4. بعد كود [KITCHEN_GO]، يجب صياغة الرسالة كالتالي حصراً:
-
+"5. إذا سألك الزبون سؤالاً جانبياً (مثل الموقع، السعر، أو وقت الدوام) وكان هناك طلب لم يتم تأكيده بكلمة 'تم' بعد، أجب على سؤاله باختصار ثم ذكّره بلطف بضرورة كتابة 'تم' لإرسال طلبه للمطبخ."
 [KITCHEN_GO]
 🔔 طلب جديد مؤكد!
 - النوع: [توصيل أو استلام]
@@ -225,12 +225,19 @@ await handleUserMessage(senderId, userMessage, "facebook");      }
 
         let reply = aiResponse.data.choices[0].message.content;
 
-        if (reply.includes("[KITCHEN_GO]")) {
+      if (reply.includes("[KITCHEN_GO]")) {
             const parts = reply.split("[KITCHEN_GO]");
             session.lastKitchenMsg = parts[1].trim();
+            
+            // إرسال ملخص الطلب مع طلب التأكيد
             await sendWA(chatId, parts[0].trim() + "\n\nأكتب 'تم' للتأكيد ✅");
         } else {
-            await sendWA(chatId, reply);
+            // إذا العميل سأل سؤال جانبي وكان في طلب معلق، بنذكره
+            let finalReply = reply;
+            if (session.lastKitchenMsg) {
+                finalReply += "\n\n⚠️ حبيبنا، بس نعتمد الطلب اللي فوق؟ أكتب 'تم' عشان نبلش نجهزلك اياه فوراً.";
+            }
+            await sendWA(chatId, finalReply);
         }
 
         session.history.push({ role: "user", content: userMessage }, { role: "assistant", content: reply });
