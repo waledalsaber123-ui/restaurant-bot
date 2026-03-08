@@ -29,7 +29,66 @@ const SETTINGS = {
 };
 
 const SESSIONS = {};
+async function handleUserMessage(chatId, userMessage, platform="wa") {
 
+    if (!SESSIONS[chatId]) SESSIONS[chatId] = { history: [], lastKitchenMsg: null };
+    const session = SESSIONS[chatId];
+
+    if (/^(تم|تمام|ايوا|ok|أكد|تاكيد)$/i.test(userMessage.trim()) && session.lastKitchenMsg) {
+
+        await sendWA(SETTINGS.KITCHEN_GROUP, session.lastKitchenMsg);
+
+        if(platform === "facebook"){
+            await sendFB(chatId,"أبشر يا غالي، طلبك وصل للمطبخ 🙏");
+        }else{
+            await sendWA(chatId,"أبشر يا غالي، طلبك وصل للمطبخ 🙏");
+        }
+
+        session.lastKitchenMsg = null;
+        return;
+    }
+
+    try {
+
+        const aiResponse = await axios.post("https://api.openai.com/v1/chat/completions", {
+            model: "gpt-4o",
+            messages: [
+                { role: "system", content: getSystemPrompt() },
+                ...session.history.slice(-18),
+                { role: "user", content: userMessage }
+            ],
+            temperature: 0
+        }, { headers: { Authorization: `Bearer ${SETTINGS.OPENAI_KEY}` }});
+
+        let reply = aiResponse.data.choices[0].message.content;
+
+        if (reply.includes("[KITCHEN_GO]")) {
+
+            const parts = reply.split("[KITCHEN_GO]");
+            session.lastKitchenMsg = parts[1].trim();
+
+            if(platform === "facebook"){
+                await sendFB(chatId, parts[0].trim() + "\n\nاكتب تم للتأكيد ✅");
+            }else{
+                await sendWA(chatId, parts[0].trim() + "\n\nاكتب تم للتأكيد ✅");
+            }
+
+        } else {
+
+            if(platform === "facebook"){
+                await sendFB(chatId, reply);
+            }else{
+                await sendWA(chatId, reply);
+            }
+
+        }
+
+        session.history.push({ role: "user", content: userMessage }, { role: "assistant", content: reply });
+
+    } catch (err) {
+        console.log(err.message);
+    }
+}
 /* ================= نظام البرومبت الموحد والشامل ================= */
 const getSystemPrompt = () => {
     return `
@@ -114,6 +173,25 @@ const getSystemPrompt = () => {
 
 /* ================= المحرك الرئيسي المصلح ================= */
 app.post("/webhook", async (req, res) => {
+  // ===== Facebook / Instagram messages =====
+if (req.body.object === "page") {
+
+  for (const entry of req.body.entry) {
+    for (const event of entry.messaging) {
+
+      const senderId = event.sender.id;
+
+      if (event.message && event.message.text) {
+        const userMessage = event.message.text;
+
+        handleUserMessage(senderId, userMessage, "facebook");
+      }
+
+    }
+  }
+
+  return res.sendStatus(200);
+}
     res.sendStatus(200);
     const body = req.body;
     if (body.typeWebhook !== "incomingMessageReceived") return;
@@ -166,6 +244,19 @@ app.post("/webhook", async (req, res) => {
 });
 
 async function sendWA(chatId, message) {
+  async function sendFB(psid, message) {
+
+  const PAGE_TOKEN = process.env.PAGE_TOKEN;
+
+  await axios.post(
+    `https://graph.facebook.com/v19.0/me/messages?access_token=${PAGE_TOKEN}`,
+    {
+      recipient: { id: psid },
+      message: { text: message }
+    }
+  );
+
+}
     try {
         await axios.post(`${SETTINGS.API_URL}/sendMessage/${SETTINGS.GREEN_TOKEN}`, { chatId, message });
     } catch (err) {}
