@@ -174,57 +174,24 @@ const getSystemPrompt = () => {
 
 /* ================= المحرك الرئيسي الموحد ================= */
 app.all("/webhook", async (req, res) => {
-  // للتحقق من فيسبوك (GET)
-  if (req.method === "GET") {
-    const VERIFY_TOKEN = "SaberJo_Secret_2026";
-    const mode = req.query["hub.mode"];
-    const token = req.query["hub.verify_token"];
-    const challenge = req.query["hub.challenge"];
-    if (mode === "subscribe" && token === VERIFY_TOKEN) return res.status(200).send(challenge);
-    return res.sendStatus(403);
-  }
 
-  // معالجة الرسائل (POST)
   const body = req.body;
 
-// Messenger + Instagram
-if (body.object === "page" || body.object === "instagram") {
+  // Messenger + Instagram
+  if (body.object === "page" || body.object === "instagram") {
 
-  for (const entry of body.entry) {
+    for (const entry of body.entry) {
 
-    // Messenger events
-    if (entry.messaging) {
+      if (entry.messaging) {
 
-      for (const event of entry.messaging) {
+        for (const event of entry.messaging) {
 
-        if (event.message && event.message.text) {
+          if (event.message && event.message.text) {
 
-          const senderId = event.sender.id;
-          const userMessage = event.message.text;
+            const senderId = event.sender.id;
+            const userMessage = event.message.text;
 
-          await handleUserMessage(senderId, userMessage, "facebook");
-
-        }
-
-      }
-
-    }
-
-    // Instagram events
-    if (entry.changes) {
-
-      for (const change of entry.changes) {
-
-        if (change.value?.messages) {
-
-          for (const msg of change.value.messages) {
-
-            const senderId = msg.from.id;
-            const userMessage = msg.text;
-
-            if (userMessage) {
-              await handleUserMessage(senderId, userMessage, "facebook");
-            }
+            await handleUserMessage(senderId, userMessage, "facebook");
 
           }
 
@@ -234,10 +201,31 @@ if (body.object === "page" || body.object === "instagram") {
 
     }
 
+    return res.sendStatus(200);
   }
 
-  return res.sendStatus(200);
-}
+  // WhatsApp GreenAPI
+  if (body.typeWebhook === "incomingMessageReceived") {
+
+    const chatId = body.senderData?.chatId;
+
+    if (chatId && !chatId.endsWith("@g.us")) {
+
+      let userMessage =
+        body.messageData?.textMessageData?.textMessage ||
+        body.messageData?.extendedTextMessageData?.text;
+
+      if (userMessage) {
+        await handleUserMessage(chatId, userMessage, "wa");
+      }
+
+    }
+
+  }
+
+  res.sendStatus(200);
+});
+
 
   // ثانياً: إذا كانت الرسالة من Green API (واتساب)
   if (body.typeWebhook === "incomingMessageReceived") {
