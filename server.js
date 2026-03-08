@@ -261,9 +261,6 @@ async function sendWA(chatId, message) {
         await axios.post(`${SETTINGS.API_URL}/sendMessage/${SETTINGS.GREEN_TOKEN}`, { chatId, message });
     } catch (err) {}
 }
-    try {
-        await axios.post(`${SETTINGS.API_URL}/sendMessage/${SETTINGS.GREEN_TOKEN}`, { chatId, message });
-    } catch (err) {}
-}
+  
 
 app.listen(3000, () => console.log("Saber Smart Engine is Live & Stable!"));
