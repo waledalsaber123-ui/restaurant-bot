@@ -187,17 +187,57 @@ app.all("/webhook", async (req, res) => {
   // معالجة الرسائل (POST)
   const body = req.body;
 
-  // أولاً: إذا كانت الرسالة من فيسبوك أو انستغرام
-  if (body.object === "page" || body.object === "instagram") {
-    for (const entry of body.entry) {
-      if (entry.messaging) {
-        for (const event of entry.messaging) {
-          if (event.message?.text) await handleUserMessage(event.sender.id, event.message.text, "facebook");
+// Messenger + Instagram
+if (body.object === "page" || body.object === "instagram") {
+
+  for (const entry of body.entry) {
+
+    // Messenger events
+    if (entry.messaging) {
+
+      for (const event of entry.messaging) {
+
+        if (event.message && event.message.text) {
+
+          const senderId = event.sender.id;
+          const userMessage = event.message.text;
+
+          await handleUserMessage(senderId, userMessage, "facebook");
+
         }
+
       }
+
     }
-    return res.sendStatus(200); // إنهاء الطلب هنا للفيسبوك
+
+    // Instagram events
+    if (entry.changes) {
+
+      for (const change of entry.changes) {
+
+        if (change.value?.messages) {
+
+          for (const msg of change.value.messages) {
+
+            const senderId = msg.from.id;
+            const userMessage = msg.text;
+
+            if (userMessage) {
+              await handleUserMessage(senderId, userMessage, "facebook");
+            }
+
+          }
+
+        }
+
+      }
+
+    }
+
   }
+
+  return res.sendStatus(200);
+}
 
   // ثانياً: إذا كانت الرسالة من Green API (واتساب)
   if (body.typeWebhook === "incomingMessageReceived") {
