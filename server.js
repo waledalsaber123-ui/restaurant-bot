@@ -177,8 +177,7 @@ app.post("/webhook", async (req, res) => {
 
   console.log("INCOMING WEBHOOK:");
 console.log(JSON.stringify(req.body, null, 2));// ===== Facebook / Instagram messages =====
-if (req.body.object === "page") {
-
+if (req.body.object === "page" || req.body.object === "instagram") {
   for (const entry of req.body.entry) {
 
     // Messenger
