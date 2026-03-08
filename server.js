@@ -174,7 +174,9 @@ const getSystemPrompt = () => {
 
 /* ================= المحرك الرئيسي المصلح ================= */
 app.post("/webhook", async (req, res) => {
-  // ===== Facebook / Instagram messages =====
+
+  console.log("INCOMING WEBHOOK:");
+console.log(JSON.stringify(req.body, null, 2));// ===== Facebook / Instagram messages =====
 if (req.body.object === "page") {
 
   for (const entry of req.body.entry) {
@@ -199,10 +201,13 @@ if (req.body.object === "page") {
         if (change.value.messages) {
           const message = change.value.messages[0];
 
-          const senderId = message.from.id;
-          const userMessage = message.text.body;
+       const senderId = message.from.id;
 
-          await handleUserMessage(senderId, userMessage, "facebook");
+if (message.text && message.text.body) {
+    const userMessage = message.text.body;
+
+    await handleUserMessage(senderId, userMessage, "facebook");
+}
         }
 
       }
