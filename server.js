@@ -300,14 +300,16 @@ async function sendFB(psid, message) {
 
   const PAGE_TOKEN = process.env.PAGE_TOKEN;
 
-  await axios.post(
-    `https://graph.facebook.com/v19.0/me/messages?access_token=${PAGE_TOKEN}`,
-    {
-      recipient: { id: psid },
-      message: { text: message }
-    }
-  );
-
+await axios.post(
+  "https://graph.facebook.com/v19.0/me/messages",
+  {
+    recipient: { id: psid },
+    message: { text: message }
+  },
+  {
+    params: { access_token: PAGE_TOKEN }
+  }
+);
 }
 async function sendWA(chatId, message) {
     try {
