@@ -3,7 +3,23 @@ import axios from "axios";
 
 const app = express();
 app.use(express.json());
+/* Facebook webhook verification */
+app.get("/webhook", (req, res) => {
+  const VERIFY_TOKEN = "SaberJo_Secret_2026";
 
+  const mode = req.query["hub.mode"];
+  const token = req.query["hub.verify_token"];
+  const challenge = req.query["hub.challenge"];
+
+  if (mode && token) {
+    if (mode === "subscribe" && token === VERIFY_TOKEN) {
+      console.log("WEBHOOK VERIFIED");
+      res.status(200).send(challenge);
+    } else {
+      res.sendStatus(403);
+    }
+  }
+});
 const SETTINGS = {
     OPENAI_KEY: process.env.OPENAI_KEY,
     GREEN_TOKEN: process.env.GREEN_TOKEN,
