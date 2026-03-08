@@ -225,20 +225,6 @@ app.all("/webhook", async (req, res) => {
 
   res.sendStatus(200);
 });
-
-
-  // ثانياً: إذا كانت الرسالة من Green API (واتساب)
-  if (body.typeWebhook === "incomingMessageReceived") {
-    const chatId = body.senderData?.chatId;
-    // تأكد إنه مش رسالة من جروب عشان ما يدخل بلوب
-    if (chatId && !chatId.endsWith("@g.us")) {
-      let userMessage = body.messageData?.textMessageData?.textMessage || body.messageData?.extendedTextMessageData?.text;
-      if (userMessage) await handleUserMessage(chatId, userMessage, "wa");
-    }
-  }
-
-  res.sendStatus(200);
-});
     const body = req.body;
     if (body.typeWebhook !== "incomingMessageReceived") return;
 
