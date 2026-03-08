@@ -242,25 +242,42 @@ app.post("/webhook", async (req, res) => {
             platform === "facebook" ? await sendFB(chatId, finalReply) : await sendWA(chatId, finalReply);
         }
         });
+// نهاية دالة handleUserMessage
     } catch (err) {
-        console.log("Error FB:", err.message);
+        console.log("Error in AI Logic:", err.message);
+        const errMsg = "أبشر يا غالي، بس ارجع ابعث رسالتك كمان مرة، كان في ضغط عالخط 🙏";
+        platform === "facebook" ? await sendFB(chatId, errMsg) : await sendWA(chatId, errMsg);
     }
 }
 
-const errMsg = "أبشر يا غالي، بس ارجع ابعث رسالتك كمان مرة، كان في ضغط عالخط 🙏";
-        platform === "facebook" ? await sendFB(chatId, errMsg) : await sendWA(chatId, errMsg);
-try {
- async function sendFB(psid, message) {
+/* ================= إرسال الرسائل لمنصات Meta & WA ================= */
+
+async function sendFB(psid, message) {
     try {
         await axios.post(`https://graph.facebook.com/v21.0/me/messages?access_token=${SETTINGS.PAGE_TOKEN}`, {
             recipient: { id: psid },
             message: { text: message }
         });
+        console.log("✅ تم إرسال الرد لفيسبوك بنجاح");
     } catch (err) {
-        console.log("Error FB:", err.response?.data || err.message);
+        console.log("❌ خطأ في إرسال فيسبوك:", err.response?.data || err.message);
     }
 }
-  
 
-app.listen(3000, () => console.log("Saber Smart Engine is Live & Stable!"));
+async function sendWA(chatId, message) {
+    try {
+        await axios.post(`${SETTINGS.API_URL}/sendMessage/${SETTINGS.GREEN_TOKEN}`, {
+            chatId: chatId,
+            message: message
+        });
+        console.log("✅ تم إرسال الرد لواتساب بنجاح");
+    } catch (err) {
+        console.log("❌ خطأ في إرسال واتساب:", err.message);
+    }
+}
 
+/* ================= تشغيل السيرفر ================= */
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+    console.log(`🚀 Saber Smart Engine is Live & Stable on port ${PORT}!`);
+});
