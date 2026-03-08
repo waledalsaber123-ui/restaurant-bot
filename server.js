@@ -21,12 +21,12 @@ app.get("/webhook", (req, res) => {
   }
 });
 const SETTINGS = {
-    OPENAI_KEY: process.env.OPENAI_KEY,
-    GREEN_TOKEN: process.env.GREEN_TOKEN,
-    ID_INSTANCE: process.env.ID_INSTANCE,
-    PAGE_TOKEN: process.env.PAGE_TOKEN, // 👈 هاد السطر ضروري ضيفه هون
-    KITCHEN_GROUP: "120363407952234395@g.us",
-    API_URL: `https://7103.api.greenapi.com/waInstance${process.env.ID_INSTANCE}`
+    OPENAI_KEY: process.env.OPENAI_KEY,
+    GREEN_TOKEN: process.env.GREEN_TOKEN,
+    ID_INSTANCE: process.env.ID_INSTANCE,
+    PAGE_TOKEN: process.env.PAGE_TOKEN, // 👈 هاد السطر ضروري ضيفه هون
+    KITCHEN_GROUP: "120363407952234395@g.us",
+    API_URL: `https://7103.api.greenapi.com/waInstance${process.env.ID_INSTANCE}`
 };
 
 const SESSIONS = {};
@@ -157,11 +157,11 @@ const getSystemPrompt = () => {
 3. حساب المجموع الإجمالي = (سعر الأصناف + أجور التوصيل).
 4. بعد كود [KITCHEN_GO]، يجب صياغة الرسالة كالتالي حصراً:
 5. إذا سألك الزبون سؤالاً جانبياً (مثل الموقع، السعر، أو وقت الدوام) وكان هناك طلب لم يتم تأكيده بكلمة 'تم' بعد، أجب على سؤاله باختصار ثم ذكّره بلطف بضرورة كتابة 'تم' لإرسال طلبه للمطبخ."
-6.إجباري: لا ترسل [KITCHEN_GO]  إلا إذا كتب الزبون رقم هاتفه بالأرقام. يمنع قبول كلمة 'نفس الرقم' أو 'عندكم'؛ يجب أن يكتب الرقمو يجب ان يكون رقم الهاتف من بلزبط  10 خانات و يبداء ب  07 (مثلاً 07xxxxxxxx) ليظهر في ملخص الطلب.
+6.إجباري: لا ترسل [KITCHEN_GO]  إلا إذا كتب الزبون رقم هاتفه بالأرقام. يمنع قبول كلمة 'نفس الرقم' أو 'عندكم'؛ يجب أن يكتب الرقمو يجب ان يكون رقم الهاتف من بلزبط  10 خانات و يبداء ب  07 (مثلاً 07xxxxxxxx) ليظهر في ملخص الطلب.
 7.في حال الاستلام من الفرع: (الاسم، رقم الهاتف، الموعد، والطلب). (مهم: لا تطلب عنوان للاستلام).
 بمجرد توفر هذه المعلومات، اعرض ملخص الطلب فوراً متبوعاً بكود [KITCHEN_GO].
 [KITCHEN_GO]
-7. طلبات الاستلام و التوصيل الاسم و رقم الهاتف اجباري 
+7. طلبات الاستلام و التوصيل الاسم و رقم الهاتف اجباري 
 🔔 طلب جديد مؤكد!
 - النوع: [توصيل أو استلام]
 - الاسم: [الاسم الكامل]
@@ -176,29 +176,29 @@ const getSystemPrompt = () => {
 `;
 };
 app.post("/webhook", async (req, res) => {
-    const body = req.body;
+    const body = req.body;
 
-    // 1. إذا الرسالة من فيسبوك أو إنستغرام
-    if (body.object === "page" || body.object === "instagram") {
-        const messaging = body.entry?.[0]?.messaging?.[0];
-        if (messaging?.message?.text) {
-            await handleUserMessage(messaging.sender.id, messaging.message.text, "facebook");
-        }
-        return res.sendStatus(200);
-    }
+    // 1. إذا الرسالة من فيسبوك أو إنستغرام
+    if (body.object === "page" || body.object === "instagram") {
+        const messaging = body.entry?.[0]?.messaging?.[0];
+        if (messaging?.message?.text) {
+            await handleUserMessage(messaging.sender.id, messaging.message.text, "facebook");
+        }
+        return res.sendStatus(200);
+    }
 
-    // 2. إذا الرسالة من واتساب (GreenAPI)
-    if (body.typeWebhook === "incomingMessageReceived") {
-        const chatId = body.senderData?.chatId;
-        const text = body.messageData?.textMessageData?.textMessage || body.messageData?.extendedTextMessageData?.text;
-        
-        if (chatId && !chatId.endsWith("@g.us") && text) {
-            await handleUserMessage(chatId, text, "wa");
-        }
-        return res.sendStatus(200);
-    }
+    // 2. إذا الرسالة من واتساب (GreenAPI)
+    if (body.typeWebhook === "incomingMessageReceived") {
+        const chatId = body.senderData?.chatId;
+        const text = body.messageData?.textMessageData?.textMessage || body.messageData?.extendedTextMessageData?.text;
+        
+        if (chatId && !chatId.endsWith("@g.us") && text) {
+            await handleUserMessage(chatId, text, "wa");
+        }
+        return res.sendStatus(200);
+    }
 
-    res.sendStatus(200);
+    res.sendStatus(200);
 });
     if (!SESSIONS[chatId]) SESSIONS[chatId] = { history: [], lastKitchenMsg: null };
     const session = SESSIONS[chatId];
@@ -228,56 +228,39 @@ app.post("/webhook", async (req, res) => {
         let reply = aiResponse.data.choices[0].message.content;
 
     if (reply.includes("[KITCHEN_GO]")) {
-            const parts = reply.split("[KITCHEN_GO]");
-            session.lastKitchenMsg = parts[1].trim();
-            const finalReply = parts[0].trim() + "\n\nأكتب 'تم' للتأكيد ✅";
+            const parts = reply.split("[KITCHEN_GO]");
+            session.lastKitchenMsg = parts[1].trim();
+            const finalReply = parts[0].trim() + "\n\nأكتب 'تم' للتأكيد ✅";
 
-            // هاد السطر بقرر يبعث فيسبوك أو واتساب حسب نوع المنصة
-            platform === "facebook" ? await sendFB(chatId, finalReply) : await sendWA(chatId, finalReply);
-        } else {
-            let finalReply = reply;
-            if (session.lastKitchenMsg) {
-                finalReply += "\n\n⚠️ حبيبنا، بس نعتمد الطلب اللي فوق؟ أكتب 'تم' عشان نبلش نجهزلك اياه فوراً.";
-            }
-            platform === "facebook" ? await sendFB(chatId, finalReply) : await sendWA(chatId, finalReply);
-        }
-        });
-// نهاية دالة handleUserMessage
-    } catch (err) {
-        console.log("Error in AI Logic:", err.message);
-        const errMsg = "أبشر يا غالي، بس ارجع ابعث رسالتك كمان مرة، كان في ضغط عالخط 🙏";
-        platform === "facebook" ? await sendFB(chatId, errMsg) : await sendWA(chatId, errMsg);
-    }
+            // هاد السطر بقرر يبعث فيسبوك أو واتساب حسب نوع المنصة
+            platform === "facebook" ? await sendFB(chatId, finalReply) : await sendWA(chatId, finalReply);
+        } else {
+            let finalReply = reply;
+            if (session.lastKitchenMsg) {
+                finalReply += "\n\n⚠️ حبيبنا، بس نعتمد الطلب اللي فوق؟ أكتب 'تم' عشان نبلش نجهزلك اياه فوراً.";
+            }
+            platform === "facebook" ? await sendFB(chatId, finalReply) : await sendWA(chatId, finalReply);
+        }
+        });
+    } catch (err) {
+        console.log("Error FB:", err.message);
+    }
 }
 
-/* ================= إرسال الرسائل لمنصات Meta & WA ================= */
-
-async function sendFB(psid, message) {
-    try {
-        await axios.post(`https://graph.facebook.com/v21.0/me/messages?access_token=${SETTINGS.PAGE_TOKEN}`, {
-            recipient: { id: psid },
-            message: { text: message }
-        });
-        console.log("✅ تم إرسال الرد لفيسبوك بنجاح");
-    } catch (err) {
-        console.log("❌ خطأ في إرسال فيسبوك:", err.response?.data || err.message);
-    }
+const errMsg = "أبشر يا غالي، بس ارجع ابعث رسالتك كمان مرة، كان في ضغط عالخط 🙏";
+        platform === "facebook" ? await sendFB(chatId, errMsg) : await sendWA(chatId, errMsg);
+try {
+ async function sendFB(psid, message) {
+    try {
+        await axios.post(`https://graph.facebook.com/v21.0/me/messages?access_token=${SETTINGS.PAGE_TOKEN}`, {
+            recipient: { id: psid },
+            message: { text: message }
+        });
+    } catch (err) {
+        console.log("Error FB:", err.response?.data || err.message);
+    }
 }
+  
 
-async function sendWA(chatId, message) {
-    try {
-        await axios.post(`${SETTINGS.API_URL}/sendMessage/${SETTINGS.GREEN_TOKEN}`, {
-            chatId: chatId,
-            message: message
-        });
-        console.log("✅ تم إرسال الرد لواتساب بنجاح");
-    } catch (err) {
-        console.log("❌ خطأ في إرسال واتساب:", err.message);
-    }
-}
+app.listen(3000, () => console.log("Saber Smart Engine is Live & Stable!"));
 
-/* ================= تشغيل السيرفر ================= */
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-    console.log(`🚀 Saber Smart Engine is Live & Stable on port ${PORT}!`);
-});
