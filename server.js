@@ -172,65 +172,72 @@ const getSystemPrompt = () => {
 `;
 };
 
-/* ================= المحرك الرئيسي المصلح ================= */
-app.post("/webhook", async (req, res) => {
-
-  console.log("INCOMING WEBHOOK:");
-console.log(JSON.stringify(req.body, null, 2));// ===== Facebook / Instagram messages =====
-if (req.body.object === "page" || req.body.object === "instagram") {
-  for (const entry of req.body.entry) {
-
-    // Messenger
-    if (entry.messaging) {
-      for (const event of entry.messaging) {
-/* ================= المحرك الموحد (الواتساب + فيسبوك + انستجرام) ================= */
+/* ================= المحرك الموحد (فيسبوك، انستجرام، واتساب) ================= */
 app.post("/webhook", async (req, res) => {
     const body = req.body;
 
-    // 1. معالجة فيسبوك وانستجرام
+    // 1. معالجة رسائل فيسبوك وانستجرام
     if (body.object === "page" || body.object === "instagram") {
-        body.entry?.forEach(entry => {
+        if (body.entry && body.entry[0]) {
+            const entry = body.entry[0];
+            
+            // التعامل مع Messenger و Instagram Direct
             const messagingEvent = entry.messaging?.[0] || entry.changes?.[0]?.value?.messages?.[0];
+            
             if (messagingEvent) {
                 const senderId = messagingEvent.sender?.id || messagingEvent.from?.id;
                 const text = messagingEvent.message?.text || messagingEvent.text?.body;
-                if (senderId && text) handleUserMessage(senderId, text, "facebook");
+                
+                if (senderId && text) {
+                    await handleUserMessage(senderId, text, "facebook");
+                }
             }
-        });
+        }
         return res.sendStatus(200);
     }
 
-    // 2. معالجة واتساب (GreenAPI)
+    // 2. معالجة رسائل واتساب (GreenAPI)
     if (body.typeWebhook === "incomingMessageReceived") {
         const chatId = body.senderData?.chatId;
-        // منع الرد على الجروبات لضمان الخصوصية
+        
+        // التأكد إنه مش جروب عشان البوت ما يجاوب على نفسه
         if (chatId && !chatId.endsWith("@g.us")) {
             const userMessage = body.messageData?.textMessageData?.textMessage || 
                                body.messageData?.extendedTextMessageData?.text;
-            if (userMessage) await handleUserMessage(chatId, userMessage, "wa");
+            
+            if (userMessage) {
+                await handleUserMessage(chatId, userMessage, "wa");
+            }
         }
     }
+
     res.sendStatus(200);
 });
 
+/* ================= دالات الإرسال (Send Functions) ================= */
+
 async function sendFB(psid, message) {
-
-  const PAGE_TOKEN = process.env.PAGE_TOKEN;
-
-  await axios.post(
-    `https://graph.facebook.com/v19.0/me/messages?access_token=${PAGE_TOKEN}`,
-    {
-      recipient: { id: psid },
-      message: { text: message }
+    const PAGE_TOKEN = process.env.PAGE_TOKEN;
+    try {
+        await axios.post(`https://graph.facebook.com/v19.0/me/messages?access_token=${PAGE_TOKEN}`, {
+            recipient: { id: psid },
+            message: { text: message }
+        });
+    } catch (err) {
+        console.error("FB Send Error:", err.response?.data || err.message);
     }
-  );
-
 }
+
 async function sendWA(chatId, message) {
     try {
-        await axios.post(`${SETTINGS.API_URL}/sendMessage/${SETTINGS.GREEN_TOKEN}`, { chatId, message });
-    } catch (err) {}
+        await axios.post(`${SETTINGS.API_URL}/sendMessage/${SETTINGS.GREEN_TOKEN}`, { 
+            chatId: chatId, 
+            message: message 
+        });
+    } catch (err) {
+        console.error("WA Send Error:", err.response?.data || err.message);
+    }
 }
-  
 
+// تشغيل السيرفر
 app.listen(3000, () => console.log("Saber Smart Engine is Live & Stable!"));
