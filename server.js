@@ -184,8 +184,7 @@ if (req.body.object === "page") {
       if (event.message && event.message.text) {
         const userMessage = event.message.text;
 
-        handleUserMessage(senderId, userMessage, "facebook");
-      }
+await handleUserMessage(senderId, userMessage, "facebook");      }
 
     }
   }
