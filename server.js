@@ -176,7 +176,7 @@ const getSystemPrompt = () => {
 app.post("/webhook", async (req, res) => {
     const body = req.body;
 
-    // استقبال رسائل فيسبوك وإنستغرام
+    // 1. إذا الرسالة من فيسبوك أو إنستغرام
     if (body.object === "page" || body.object === "instagram") {
         const messaging = body.entry?.[0]?.messaging?.[0];
         if (messaging?.message?.text) {
@@ -185,7 +185,7 @@ app.post("/webhook", async (req, res) => {
         return res.sendStatus(200);
     }
 
-    // استقبال رسائل واتساب (GreenAPI)
+    // 2. إذا الرسالة من واتساب (GreenAPI)
     if (body.typeWebhook === "incomingMessageReceived") {
         const chatId = body.senderData?.chatId;
         const text = body.messageData?.textMessageData?.textMessage || body.messageData?.extendedTextMessageData?.text;
@@ -195,6 +195,7 @@ app.post("/webhook", async (req, res) => {
         }
         return res.sendStatus(200);
     }
+
     res.sendStatus(200);
 });
     if (!SESSIONS[chatId]) SESSIONS[chatId] = { history: [], lastKitchenMsg: null };
@@ -224,45 +225,38 @@ app.post("/webhook", async (req, res) => {
 
         let reply = aiResponse.data.choices[0].message.content;
 
-      if (reply.includes("[KITCHEN_GO]")) {
-            const parts = reply.split("[KITCHEN_GO]");
-            session.lastKitchenMsg = parts[1].trim();
-            
-            // إرسال ملخص الطلب مع طلب التأكيد
-            await sendWA(chatId, parts[0].trim() + "\n\nأكتب 'تم' للتأكيد ✅");
-        } else {
-            // إذا العميل سأل سؤال جانبي وكان في طلب معلق، بنذكره
-            let finalReply = reply;
-            if (session.lastKitchenMsg) {
-                finalReply += "\n\n⚠️ حبيبنا، بس نعتمد الطلب اللي فوق؟ أكتب 'تم' عشان نبلش نجهزلك اياه فوراً.";
-            }
-            await sendWA(chatId, finalReply);
-        }
+    if (reply.includes("[KITCHEN_GO]")) {
+            const parts = reply.split("[KITCHEN_GO]");
+            session.lastKitchenMsg = parts[1].trim();
+            const finalReply = parts[0].trim() + "\n\nأكتب 'تم' للتأكيد ✅";
 
-        session.history.push({ role: "user", content: userMessage }, { role: "assistant", content: reply });
-        if (session.history.length > 50) session.history.splice(0, 2);
-
-    } catch (err) {
-        console.error("Error:", err.message);
-        await sendWA(chatId, "أبشر يا غالي، بس ارجع ابعث رسالتك كمان مرة، كان في ضغط عالخط 🙏");
-    }
-});
-
-async function sendFB(psid, message) {
-    try {
-        await axios.post(`https://graph.facebook.com/v19.0/me/messages?access_token=${SETTINGS.PAGE_TOKEN}`, {
-            recipient: { id: psid },
-            message: { text: message }
+            // هاد السطر بقرر يبعث فيسبوك أو واتساب حسب نوع المنصة
+            platform === "facebook" ? await sendFB(chatId, finalReply) : await sendWA(chatId, finalReply);
+        } else {
+            let finalReply = reply;
+            if (session.lastKitchenMsg) {
+                finalReply += "\n\n⚠️ حبيبنا، بس نعتمد الطلب اللي فوق؟ أكتب 'تم' عشان نبلش نجهزلك اياه فوراً.";
+            }
+            platform === "facebook" ? await sendFB(chatId, finalReply) : await sendWA(chatId, finalReply);
+        }
         });
     } catch (err) {
         console.log("Error FB:", err.message);
     }
 }
 
-async function sendWA(chatId, message) {
-    try {
-        await axios.post(`${SETTINGS.API_URL}/sendMessage/${SETTINGS.GREEN_TOKEN}`, { chatId, message });
-    } catch (err) {}
+const errMsg = "أبشر يا غالي، بس ارجع ابعث رسالتك كمان مرة، كان في ضغط عالخط 🙏";
+        platform === "facebook" ? await sendFB(chatId, errMsg) : await sendWA(chatId, errMsg);
+try {
+ async function sendFB(psid, message) {
+    try {
+        await axios.post(`https://graph.facebook.com/v21.0/me/messages?access_token=${SETTINGS.PAGE_TOKEN}`, {
+            recipient: { id: psid },
+            message: { text: message }
+        });
+    } catch (err) {
+        console.log("Error FB:", err.response?.data || err.message);
+    }
 }
   
 
