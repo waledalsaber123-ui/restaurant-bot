@@ -172,66 +172,30 @@ const getSystemPrompt = () => {
 إذا في أي تعديل، تواصل هاتفياً مع المطعم: 0796893403. شكراً لطلبك.
 `;
 };
+app.post("/webhook", async (req, res) => {
+    const body = req.body;
 
-/* ================= المحرك الرئيسي الموحد ================= */
-app.all("/webhook", async (req, res) => {
-
-  const body = req.body;
-
-  // Messenger + Instagram
-  if (body.object === "page" || body.object === "instagram") {
-
-    for (const entry of body.entry) {
-
-      if (entry.messaging) {
-
-        for (const event of entry.messaging) {
-
-          if (event.message && event.message.text) {
-
-            const senderId = event.sender.id;
-            const userMessage = event.message.text;
-
-            await handleUserMessage(senderId, userMessage, "facebook");
-
-          }
-
+    // استقبال رسائل فيسبوك وإنستغرام
+    if (body.object === "page" || body.object === "instagram") {
+        const messaging = body.entry?.[0]?.messaging?.[0];
+        if (messaging?.message?.text) {
+            await handleUserMessage(messaging.sender.id, messaging.message.text, "facebook");
         }
-
-      }
-
+        return res.sendStatus(200);
     }
 
-    return res.sendStatus(200);
-  }
-
-  // WhatsApp GreenAPI
-  if (body.typeWebhook === "incomingMessageReceived") {
-
-    const chatId = body.senderData?.chatId;
-
-    if (chatId && !chatId.endsWith("@g.us")) {
-
-      let userMessage =
-        body.messageData?.textMessageData?.textMessage ||
-        body.messageData?.extendedTextMessageData?.text;
-
-      if (userMessage) {
-        await handleUserMessage(chatId, userMessage, "wa");
-      }
-
+    // استقبال رسائل واتساب (GreenAPI)
+    if (body.typeWebhook === "incomingMessageReceived") {
+        const chatId = body.senderData?.chatId;
+        const text = body.messageData?.textMessageData?.textMessage || body.messageData?.extendedTextMessageData?.text;
+        
+        if (chatId && !chatId.endsWith("@g.us") && text) {
+            await handleUserMessage(chatId, text, "wa");
+        }
+        return res.sendStatus(200);
     }
-
-  }
-
-  res.sendStatus(200);
+    res.sendStatus(200);
 });
-    const body = req.body;
-    if (body.typeWebhook !== "incomingMessageReceived") return;
-
-    const chatId = body.senderData?.chatId;
-    if (!chatId || chatId.endsWith("@g.us")) return;
-
     if (!SESSIONS[chatId]) SESSIONS[chatId] = { history: [], lastKitchenMsg: null };
     const session = SESSIONS[chatId];
 
@@ -284,20 +248,16 @@ app.all("/webhook", async (req, res) => {
 });
 
 async function sendFB(psid, message) {
-
-  const PAGE_TOKEN = process.env.PAGE_TOKEN;
-
-await axios.post(
-  "https://graph.facebook.com/v19.0/me/messages",
-  {
-    recipient: { id: psid },
-    message: { text: message }
-  },
-  {
-    params: { access_token: PAGE_TOKEN }
-  }
-);
+    try {
+        await axios.post(`https://graph.facebook.com/v19.0/me/messages?access_token=${SETTINGS.PAGE_TOKEN}`, {
+            recipient: { id: psid },
+            message: { text: message }
+        });
+    } catch (err) {
+        console.log("Error FB:", err.message);
+    }
 }
+
 async function sendWA(chatId, message) {
     try {
         await axios.post(`${SETTINGS.API_URL}/sendMessage/${SETTINGS.GREEN_TOKEN}`, { chatId, message });
