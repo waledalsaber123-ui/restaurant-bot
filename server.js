@@ -243,8 +243,7 @@ if (req.body.object === "page") {
     }
 });
 
-async function sendWA(chatId, message) {
-  async function sendFB(psid, message) {
+async function sendFB(psid, message) {
 
   const PAGE_TOKEN = process.env.PAGE_TOKEN;
 
@@ -256,6 +255,11 @@ async function sendWA(chatId, message) {
     }
   );
 
+}
+async function sendWA(chatId, message) {
+    try {
+        await axios.post(`${SETTINGS.API_URL}/sendMessage/${SETTINGS.GREEN_TOKEN}`, { chatId, message });
+    } catch (err) {}
 }
     try {
         await axios.post(`${SETTINGS.API_URL}/sendMessage/${SETTINGS.GREEN_TOKEN}`, { chatId, message });
