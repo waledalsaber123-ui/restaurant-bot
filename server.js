@@ -172,54 +172,45 @@ const getSystemPrompt = () => {
 `;
 };
 
-/* ================= المحرك الرئيسي المصلح ================= */
-app.post("/webhook", async (req, res) => {
+/* ================= المحرك الرئيسي الموحد ================= */
+app.all("/webhook", async (req, res) => {
+  // للتحقق من فيسبوك (GET)
+  if (req.method === "GET") {
+    const VERIFY_TOKEN = "SaberJo_Secret_2026";
+    const mode = req.query["hub.mode"];
+    const token = req.query["hub.verify_token"];
+    const challenge = req.query["hub.challenge"];
+    if (mode === "subscribe" && token === VERIFY_TOKEN) return res.status(200).send(challenge);
+    return res.sendStatus(403);
+  }
 
-  console.log("INCOMING WEBHOOK:");
-console.log(JSON.stringify(req.body, null, 2));// ===== Facebook / Instagram messages =====
-if (req.body.object === "page" || req.body.object === "instagram") {
-  for (const entry of req.body.entry) {
+  // معالجة الرسائل (POST)
+  const body = req.body;
 
-    // Messenger
-    if (entry.messaging) {
-      for (const event of entry.messaging) {
+  // أولاً: إذا كانت الرسالة من فيسبوك أو انستغرام
+  if (body.object === "page" || body.object === "instagram") {
+    for (const entry of body.entry) {
+      if (entry.messaging) {
+        for (const event of entry.messaging) {
+          if (event.message?.text) await handleUserMessage(event.sender.id, event.message.text, "facebook");
+        }
+      }
+    }
+    return res.sendStatus(200); // إنهاء الطلب هنا للفيسبوك
+  }
 
-        const senderId = event.sender.id;
+  // ثانياً: إذا كانت الرسالة من Green API (واتساب)
+  if (body.typeWebhook === "incomingMessageReceived") {
+    const chatId = body.senderData?.chatId;
+    // تأكد إنه مش رسالة من جروب عشان ما يدخل بلوب
+    if (chatId && !chatId.endsWith("@g.us")) {
+      let userMessage = body.messageData?.textMessageData?.textMessage || body.messageData?.extendedTextMessageData?.text;
+      if (userMessage) await handleUserMessage(chatId, userMessage, "wa");
+    }
+  }
 
-        if (event.message && event.message.text) {
-          await handleUserMessage(senderId, event.message.text, "facebook");
-        }
-
-      }
-    }
-
-    // Instagram
-    if (entry.changes) {
-      for (const change of entry.changes) {
-
-        if (change.value.messages) {
-          const message = change.value.messages[0];
-
-       const senderId = message.from.id;
-
-if (message.text && message.text.body) {
-    const userMessage = message.text.body;
-
-    await handleUserMessage(senderId, userMessage, "facebook");
-}
-        }
-
-      }
-    }
-
-  }
-
-  return res.sendStatus(200);
-}
-
-  return res.sendStatus(200);
-}
-    res.sendStatus(200);
+  res.sendStatus(200);
+});
     const body = req.body;
     if (body.typeWebhook !== "incomingMessageReceived") return;
 
