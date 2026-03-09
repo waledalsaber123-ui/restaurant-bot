@@ -24,8 +24,7 @@ const SETTINGS = {
     OPENAI_KEY: process.env.OPENAI_KEY,
     GREEN_TOKEN: process.env.GREEN_TOKEN,
     ID_INSTANCE: process.env.ID_INSTANCE,
-    PAGE_TOKEN: process.env.PAGE_TOKEN, // 👈 هاد السطر ضروري ضيفه هون
-    KITCHEN_GROUP: "120363407952234395@g.us",
+  KITCHEN_GROUP: "120363407952234395@g.us", 
     API_URL: `https://7103.api.greenapi.com/waInstance${process.env.ID_INSTANCE}`
 };
 
@@ -34,36 +33,21 @@ async function handleUserMessage(chatId, userMessage, platform="wa") {
 
     if (!SESSIONS[chatId]) SESSIONS[chatId] = { history: [], lastKitchenMsg: null };
     const session = SESSIONS[chatId];
-// تأكيد الطلب بعد عرض الملخص
-if (
-  /^(تم|تمام|ايوا|ok|أكد|تاكيد|اوكي|خلص|تمامم)$/i.test(userMessage.trim()) &&
-  session.lastKitchenMsg
-) {
 
-  await sendWA(SETTINGS.KITCHEN_GROUP, session.lastKitchenMsg);
+    if (/^(تم|تمام|ايوا|ok|أكد|تاكيد)$/i.test(userMessage.trim()) && session.lastKitchenMsg) {
 
-  if (platform === "facebook") {
-    await sendFB(chatId, "🔥 تم تأكيد الطلب وإرساله للمطبخ");
-  } else {
-    await sendWA(chatId, "🔥 تم تأكيد الطلب وإرساله للمطبخ");
-  }
+        await sendWA(SETTINGS.KITCHEN_GROUP, session.lastKitchenMsg);
 
-  session.lastKitchenMsg = null;
-  return;
-}
-if (/^(تم|تمام|ايوا|ok|أكد|تاكيد|اوكي|خلص|تمامم)$/i.test(userMessage.trim()) && session.lastKitchenMsg) {
+        if(platform === "facebook"){
+            await sendFB(chatId,"أبشر يا غالي، طلبك وصل للمطبخ 🙏");
+        }else{
+            await sendWA(chatId,"أبشر يا غالي، طلبك وصل للمطبخ 🙏");
+        }
 
-    await sendWA(SETTINGS.KITCHEN_GROUP, session.lastKitchenMsg);
+        session.lastKitchenMsg = null;
+        return;
+    }
 
-    if (platform === "facebook") {
-        await sendFB(chatId, "أبشر يا غالي، طلبك وصل للمطبخ 🙏");
-    } else {
-        await sendWA(chatId, "أبشر يا غالي، طلبك وصل للمطبخ 🙏");
-    }
-
-    session.lastKitchenMsg = null;
-    return;
-}
     try {
 
         const aiResponse = await axios.post("https://api.openai.com/v1/chat/completions", {
@@ -77,40 +61,17 @@ if (/^(تم|تمام|ايوا|ok|أكد|تاكيد|اوكي|خلص|تمامم)$/
         }, { headers: { Authorization: `Bearer ${SETTINGS.OPENAI_KEY}` }});
 
         let reply = aiResponse.data.choices[0].message.content;
-// إذا ظهر ملخص الطلب ولم يظهر KITCHEN_GO
-if (reply.includes("طلب جديد") || reply.includes("ملخص")) {
 
-  session.lastKitchenMsg = reply;
+        if (reply.includes("[KITCHEN_GO]")) {
 
-  const confirmMsg =
-  reply +
-  "\n\nلتأكيد الطلب اكتب كلمة: تم ✅";
+            const parts = reply.split("[KITCHEN_GO]");
+            session.lastKitchenMsg = parts[1].trim();
 
-  if (platform === "facebook") {
-    await sendFB(chatId, confirmMsg);
-  } else {
-    await sendWA(chatId, confirmMsg);
-  }
-
-  return;
-}
-if (reply.includes("[KITCHEN_GO]")) {
-
-  const parts =const parts = reply.split("[KITCHEN_GO]");
-
-session.lastKitchenMsg = parts[1]?.trim();
-
-const finalReply = parts[0].trim() + "\n\nاكتب تم للتأكيد ✅";
-    
-session.lastKitchenMsg = parts[1]?.trim();
-  const finalReply = parts[0].trim() + "\n\nاكتب تم للتأكيد ✅";
-
-  platform === "facebook"
-    ? await sendFB(chatId, finalReply)
-    : await sendWA(chatId, finalReply);
-
-}
-
+            if(platform === "facebook"){
+                await sendFB(chatId, parts[0].trim() + "\n\nاكتب تم للتأكيد ✅");
+            }else{
+                await sendWA(chatId, parts[0].trim() + "\n\nاكتب تم للتأكيد ✅");
+            }
 
         } else {
 
@@ -164,16 +125,14 @@ const getSystemPrompt = () => {
 مشروب غازي لتر 50 قرش 
 العروض الي نركز عليها اكتر شي و نرفع منها سلة الشراء 
 ساندويش زنجر ديناميت 45 سم متوسط الحرارة مناسب للاطفال و الكبار 1 دينار 
-صاروخ الشاورما 45 سم الى 50 سم  1.5 دينار 
-برجر الشاورما 1.25 دينار  
+صاروخ الشاورما 45 سم 1.5 دينار 
 قمبلة رمضان ( برجر 250 جرام ) ارتفاعها 17 سم تقريبا بسعر 2.25 
 خابور كباب ساندويش كباب طول 45 سم يحتوي على كباب بوزن 200 الى 250 غم و خلصه خاصه بسعر 2 دينار 
-الساندويشات
-ساندويش سكالوب 1.5 دينار
-ساندويش برجر لحمة 150 غم 1.5 دينار
-ساندويش شاورما عادي 1 دينار
-ساندويش شاورما سوبر 1.5 دينار
-برجر شاورما 1.25 دينار
+الندويشات 
+ساندويش  سكالوب 1.5
+ساندويش  برجر لحمة 150 غم 1.5 
+ساندويش شاورما عادي 1 دينار 
+ساندويش شاورما سوبر 1.5 دينار 
 ملاحطة لتحويل العروض و السندويشات الى وجبات ضيف دينار 
 🚚 **أسعار مناطق التوصيل (ممنوع تغييرها)**:.
 - **1.5 د.أ**: صويلح، إشارة الدوريات، مجدي مول، المختار مول.
@@ -190,58 +149,16 @@ const getSystemPrompt = () => {
 - **5 د.أ**: عراق الامير.
 
 [... المنيو وأسعار التوصيل تبقى كما هي ...]
-⚠️ قواعد إرسال الطلب للمطبخ (صارمة جداً)
 
-1. يمنع إرسال كود [KITCHEN_GO] قبل اكتمال جميع المعلومات التالية:
-- الاسم
-- رقم الهاتف
-- العنوان أو المنطقة (في حالة التوصيل)
-- الموعد
-- تفاصيل الطلب
-- الحساب الإجمالي
-
-2. إذا كانت أي معلومة ناقصة (مثل الاسم أو الموعد أو العنوان)، يجب سؤال الزبون عنها بلطف قبل عرض ملخص الطلب.
-
-3. حساب المجموع النهائي يجب أن يكون:
-(سعر الأصناف + أجور التوصيل).
-
-4. بعد اكتمال جميع المعلومات، يجب عرض **ملخص الطلب للزبون فقط** بدون إرسال الطلب للمطبخ.
-
-صيغة الملخص للزبون تكون مثلاً:
-
-ملخص طلبك:
-
-- النوع: توصيل / استلام
-- الاسم: ...
-- الرقم: ...
-- العنوان: ...
-- الموعد: ...
-- الطلب: ...
-- اجور التوصيل: ...
-- المجموع النهائي: ... دينار
-
-ثم اطلب من الزبون تأكيد الطلب بكتابة كلمة:
-"تم".
-
-5. يمنع إرسال كود [KITCHEN_GO] قبل أن يكتب الزبون كلمة **تم** صراحةً.
-
-6. بعد أن يكتب الزبون "تم"، عندها فقط يتم إرسال الطلب للمطبخ باستخدام الكود [KITCHEN_GO].
-
-7. شرط إجباري لرقم الهاتف:
-- يجب أن يكتبه الزبون بالأرقام.
-- يجب أن يكون **10 خانات بالضبط**.
-- يجب أن يبدأ بـ **07**.
-- مثال صحيح: 07XXXXXXXX
-- يمنع قبول عبارات مثل: "نفس الرقم" أو "عندكم الرقم".
-
---------------------------------------------------
-
-بعد تأكيد الزبون بكلمة "تم"، أرسل الرسالة التالية للمطبخ بعد كود [KITCHEN_GO] فقط:
-
+⚠️ **قواعد الإرسال للمطبخ (صارمة جداً)**:
+1. لا ترسل كود [KITCHEN_GO] إلا بعد اكتمال: (الاسم، رقم الهاتف، العنوان/المنطقة، الموعد، وتفاصيل الطلب مع الحساب الإجمالي).
+2. إذا نقص أي عنصر (مثلاً الموعد أو الاسم)، اطلبه من الزبون بلطف قبل عرض ملخص الطلب.
+3. حساب المجموع الإجمالي = (سعر الأصناف + أجور التوصيل).
+4. بعد كود [KITCHEN_GO]، يجب صياغة الرسالة كالتالي حصراً:
+5. إذا سألك الزبون سؤالاً جانبياً (مثل الموقع، السعر، أو وقت الدوام) وكان هناك طلب لم يتم تأكيده بكلمة 'تم' بعد، أجب على سؤاله باختصار ثم ذكّره بلطف بضرورة كتابة 'تم' لإرسال طلبه للمطبخ."
+6. 1. إجباري: لا ترسل [KITCHEN_GO] إلا إذا كتب الزبون رقم هاتفه بالأرقام. يمنع قبول كلمة 'نفس الرقم' أو 'عندكم'؛ يجب أن يكتب الرقم (مثلاً 07xxxxxxxx) ليظهر في ملخص الطلب.
 [KITCHEN_GO]
-
-🔔 طلب جديد مؤكد
-
+🔔 طلب جديد مؤكد!
 - النوع: [توصيل أو استلام]
 - الاسم: [الاسم الكامل]
 - الرقم: [رقم الهاتف]
@@ -249,66 +166,136 @@ const getSystemPrompt = () => {
 - اجور التوصيل: [السعر من القائمة أو 0 للاستلام]
 - الموعد المطلوب: [الوقت]
 - الطلب: [الأصناف + الكميات]
-- المجموع النهائي: [مجموع الطلب + التوصيل] دينار
+- المجموع النهائي: [مجموع الساندويشات + التوصيل] دينار
 
-إذا في أي تعديل تواصل هاتفياً مع المطعم:
-0796893403
-
-شكراً لطلبك.
-
+إذا في أي تعديل، تواصل هاتفياً مع المطعم: 0796893403. شكراً لطلبك.
 `;
 };
+
+/* ================= المحرك الرئيسي المصلح ================= */
 app.post("/webhook", async (req, res) => {
-    const body = req.body;
 
-    // 1. إذا الرسالة من فيسبوك أو إنستغرام
-    if (body.object === "page" || body.object === "instagram") {
-        const messaging = body.entry?.[0]?.messaging?.[0];
-        if (messaging?.message?.text) {
-            await handleUserMessage(messaging.sender.id, messaging.message.text, "facebook");
+  console.log("INCOMING WEBHOOK:");
+console.log(JSON.stringify(req.body, null, 2));// ===== Facebook / Instagram messages =====
+if (req.body.object === "page" || req.body.object === "instagram") {
+  for (const entry of req.body.entry) {
+
+    // Messenger
+    if (entry.messaging) {
+      for (const event of entry.messaging) {
+
+        const senderId = event.sender.id;
+
+        if (event.message && event.message.text) {
+          await handleUserMessage(senderId, event.message.text, "facebook");
         }
-        return res.sendStatus(200);
+
+      }
     }
 
-    // 2. إذا الرسالة من واتساب (GreenAPI)
-    if (body.typeWebhook === "incomingMessageReceived") {
-        const chatId = body.senderData?.chatId;
-        const text = body.messageData?.textMessageData?.textMessage || body.messageData?.extendedTextMessageData?.text;
-        
-        if (chatId && !chatId.endsWith("@g.us") && text) {
-            await handleUserMessage(chatId, text, "wa");
+    // Instagram
+    if (entry.changes) {
+      for (const change of entry.changes) {
+
+        if (change.value.messages) {
+          const message = change.value.messages[0];
+
+       const senderId = message.from.id;
+
+if (message.text && message.text.body) {
+    const userMessage = message.text.body;
+
+    await handleUserMessage(senderId, userMessage, "facebook");
+}
         }
-        return res.sendStatus(200);
+
+      }
     }
 
+  }
+
+  return res.sendStatus(200);
+}
+
+  return res.sendStatus(200);
+}
     res.sendStatus(200);
-});
- 
+    const body = req.body;
+    if (body.typeWebhook !== "incomingMessageReceived") return;
 
-const errMsg = "أبشر يا غالي، بس ارجع ابعث رسالتك كمان مرة، كان في ضغط عالخط 🙏";
+    const chatId = body.senderData?.chatId;
+    if (!chatId || chatId.endsWith("@g.us")) return;
 
-  async function sendFB(psid, message) {
-    try {
-        await axios.post(`https://graph.facebook.com/v21.0/me/messages?access_token=${SETTINGS.PAGE_TOKEN}`, {
-            recipient: { id: psid },
-            message: { text: message }
-        });
+    if (!SESSIONS[chatId]) SESSIONS[chatId] = { history: [], lastKitchenMsg: null };
+    const session = SESSIONS[chatId];
+
+    let userMessage = body.messageData?.textMessageData?.textMessage || body.messageData?.extendedTextMessageData?.text;
+    if (!userMessage) return;
+// --- الجزء المصلح: منطق التأكيد والإرسال للجروب ---
+  if (/^(تم|تمام|ايوا|ok|أكد|تاكيد)$/i.test(userMessage.trim()) && session.lastKitchenMsg) {
+      await sendWA(SETTINGS.KITCHEN_GROUP, session.lastKitchenMsg); // إرسال لجروب المطبخ
+      await sendWA(chatId, "أبشر يا غالي، طلبك اعتمدناه وصار بالمطبخ! نورت مطعم صابر 🙏");
+      session.lastKitchenMsg = null; 
+      return; 
+  } 
+
+  try {
+      // كود الـ axios بكمل هون طبيعي...
+        const aiResponse = await axios.post("https://api.openai.com/v1/chat/completions", {
+            model: "gpt-4o", 
+            messages: [
+                { role: "system", content: getSystemPrompt() },
+                ...session.history.slice(-18), // 🚨 ذاكرة 18 رسالة كما طلبت
+                { role: "user", content: userMessage }
+            ],
+            temperature: 0
+        }, { headers: { Authorization: `Bearer ${SETTINGS.OPENAI_KEY}` }, timeout: 30000 });
+
+        let reply = aiResponse.data.choices[0].message.content;
+
+      if (reply.includes("[KITCHEN_GO]")) {
+            const parts = reply.split("[KITCHEN_GO]");
+            session.lastKitchenMsg = parts[1].trim();
+            
+            // إرسال ملخص الطلب مع طلب التأكيد
+            await sendWA(chatId, parts[0].trim() + "\n\nأكتب 'تم' للتأكيد ✅");
+        } else {
+            // إذا العميل سأل سؤال جانبي وكان في طلب معلق، بنذكره
+            let finalReply = reply;
+            if (session.lastKitchenMsg) {
+                finalReply += "\n\n⚠️ حبيبنا، بس نعتمد الطلب اللي فوق؟ أكتب 'تم' عشان نبلش نجهزلك اياه فوراً.";
+            }
+            await sendWA(chatId, finalReply);
+        }
+
+        session.history.push({ role: "user", content: userMessage }, { role: "assistant", content: reply });
+        if (session.history.length > 50) session.history.splice(0, 2);
+
     } catch (err) {
-        console.log("Error FB:", err.response?.data || err.message);
+        console.error("Error:", err.message);
+        await sendWA(chatId, "أبشر يا غالي، بس ارجع ابعث رسالتك كمان مرة، كان في ضغط عالخط 🙏");
     }
+});
+
+async function sendFB(psid, message) {
+
+  const PAGE_TOKEN = process.env.PAGE_TOKEN;
+
+  await axios.post(
+    `https://graph.facebook.com/v19.0/me/messages?access_token=${PAGE_TOKEN}`,
+    {
+      recipient: { id: psid },
+      message: { text: message }
+    }
+  );
+
 }
-  async function sendWA(chatId, message) {
-  try {
-    await axios.post(
-      `${SETTINGS.API_URL}/sendMessage/${SETTINGS.GREEN_TOKEN}`,
-      {
-        chatId: chatId,
-        message: message
-      }
-    );
-  } catch (err) {
-    console.log("Error WA:", err.response?.data || err.message);
-  }
+async function sendWA(chatId, message) {
+    try {
+        await axios.post(`${SETTINGS.API_URL}/sendMessage/${SETTINGS.GREEN_TOKEN}`, { chatId, message });
+    } catch (err) {}
 }
+  
 
 app.listen(3000, () => console.log("Saber Smart Engine is Live & Stable!"));
+ما عم برسل للجروب المطبخ 
