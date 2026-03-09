@@ -127,7 +127,7 @@ const getSystemPrompt = () => {
 العروض الي نركز عليها اكتر شي و نرفع منها سلة الشراء 
 ساندويش زنجر ديناميت 45 سم متوسط الحرارة مناسب للاطفال و الكبار 1 دينار 
 صاروخ الشاورما 45 سم الى 50 سم  1.5 دينار 
-برجر الشاورما 1.25 دسنار 
+برجر الشاورما 1.25 دينار  
 قمبلة رمضان ( برجر 250 جرام ) ارتفاعها 17 سم تقريبا بسعر 2.25 
 خابور كباب ساندويش كباب طول 45 سم يحتوي على كباب بوزن 200 الى 250 غم و خلصه خاصه بسعر 2 دينار 
 الندويشات 
@@ -221,7 +221,19 @@ try {
         console.log("Error FB:", err.response?.data || err.message);
     }
 }
-  
+  async function sendWA(chatId, message) {
+  try {
+    await axios.post(
+      `${SETTINGS.API_URL}/sendMessage/${SETTINGS.GREEN_TOKEN}`,
+      {
+        chatId: chatId,
+        message: message
+      }
+    );
+  } catch (err) {
+    console.log("Error WA:", err.response?.data || err.message);
+  }
+}
 
 app.listen(3000, () => console.log("Saber Smart Engine is Live & Stable!"));
 
