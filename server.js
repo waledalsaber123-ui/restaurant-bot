@@ -177,109 +177,76 @@ const getSystemPrompt = () => {
 /* ================= المحرك الرئيسي المصلح ================= */
 app.post("/webhook", async (req, res) => {
 
-  console.log("INCOMING WEBHOOK:");
-console.log(JSON.stringify(req.body, null, 2));// ===== Facebook / Instagram messages =====
-if (req.body.object === "page" || req.body.object === "instagram") {
-  for (const entry of req.body.entry) {
+  console.log("INCOMING WEBHOOK:");
+  console.log(JSON.stringify(req.body, null, 2));
 
-    // Messenger
-    if (entry.messaging) {
-      for (const event of entry.messaging) {
+  const body = req.body;
 
-        const senderId = event.sender.id;
+  /* Facebook / Instagram */
 
-        if (event.message && event.message.text) {
-          await handleUserMessage(senderId, event.message.text, "facebook");
-        }
+  if (body.object === "page" || body.object === "instagram") {
 
-      }
-    }
+    for (const entry of body.entry) {
 
-    // Instagram
-    if (entry.changes) {
-      for (const change of entry.changes) {
+      if (entry.messaging) {
+        for (const event of entry.messaging) {
 
-        if (change.value.messages) {
-          const message = change.value.messages[0];
+          const senderId = event.sender.id;
 
-       const senderId = message.from.id;
+          if (event.message && event.message.text) {
+            await handleUserMessage(senderId, event.message.text, "facebook");
+          }
 
-if (message.text && message.text.body) {
-    const userMessage = message.text.body;
+        }
+      }
 
-    await handleUserMessage(senderId, userMessage, "facebook");
-}
-        }
+      if (entry.changes) {
+        for (const change of entry.changes) {
 
-      }
-    }
+          if (change.value.messages) {
 
-  }
+            const message = change.value.messages[0];
+            const senderId = message.from.id;
 
-  return res.sendStatus(200);
-}
+            if (message.text && message.text.body) {
+              await handleUserMessage(senderId, message.text.body, "facebook");
+            }
 
-  return res.sendStatus(200);
-}
-    res.sendStatus(200);
-    const body = req.body;
-    if (body.typeWebhook !== "incomingMessageReceived") return;
+          }
 
-    const chatId = body.senderData?.chatId;
-    if (!chatId || chatId.endsWith("@g.us")) return;
+        }
+      }
 
-    if (!SESSIONS[chatId]) SESSIONS[chatId] = { history: [], lastKitchenMsg: null };
-    const session = SESSIONS[chatId];
+    }
 
-    let userMessage = body.messageData?.textMessageData?.textMessage || body.messageData?.extendedTextMessageData?.text;
-    if (!userMessage) return;
-// --- الجزء المصلح: منطق التأكيد والإرسال للجروب ---
-  if (/^(تم|تمام|ايوا|ok|أكد|تاكيد)$/i.test(userMessage.trim()) && session.lastKitchenMsg) {
-      await sendWA(SETTINGS.KITCHEN_GROUP, session.lastKitchenMsg); // إرسال لجروب المطبخ
-      await sendWA(chatId, "أبشر يا غالي، طلبك اعتمدناه وصار بالمطبخ! نورت مطعم صابر 🙏");
-      session.lastKitchenMsg = null; 
-      return; 
-  } 
+    return res.sendStatus(200);
+  }
 
-  try {
-      // كود الـ axios بكمل هون طبيعي...
-        const aiResponse = await axios.post("https://api.openai.com/v1/chat/completions", {
-            model: "gpt-4o", 
-            messages: [
-                { role: "system", content: getSystemPrompt() },
-                ...session.history.slice(-18), // 🚨 ذاكرة 18 رسالة كما طلبت
-                { role: "user", content: userMessage }
-            ],
-            temperature: 0
-        }, { headers: { Authorization: `Bearer ${SETTINGS.OPENAI_KEY}` }, timeout: 30000 });
+  /* WhatsApp GreenAPI */
 
-        let reply = aiResponse.data.choices[0].message.content;
+  if (body.typeWebhook !== "incomingMessageReceived") {
+    return res.sendStatus(200);
+  }
 
-      if (reply.includes("[KITCHEN_GO]")) {
-            const parts = reply.split("[KITCHEN_GO]");
-            session.lastKitchenMsg = parts[1].trim();
-            
-            // إرسال ملخص الطلب مع طلب التأكيد
-            await sendWA(chatId, parts[0].trim() + "\n\nأكتب 'تم' للتأكيد ✅");
-        } else {
-            // إذا العميل سأل سؤال جانبي وكان في طلب معلق، بنذكره
-            let finalReply = reply;
-            if (session.lastKitchenMsg) {
-                finalReply += "\n\n⚠️ حبيبنا، بس نعتمد الطلب اللي فوق؟ أكتب 'تم' عشان نبلش نجهزلك اياه فوراً.";
-            }
-            await sendWA(chatId, finalReply);
-        }
+  const chatId = body.senderData?.chatId;
 
-        session.history.push({ role: "user", content: userMessage }, { role: "assistant", content: reply });
-        if (session.history.length > 50) session.history.splice(0, 2);
+  if (!chatId || chatId.endsWith("@g.us")) {
+    return res.sendStatus(200);
+  }
 
-    } catch (err) {
-        console.error("Error:", err.message);
-        await sendWA(chatId, "أبشر يا غالي، بس ارجع ابعث رسالتك كمان مرة، كان في ضغط عالخط 🙏");
-    }
+  let userMessage =
+    body.messageData?.textMessageData?.textMessage ||
+    body.messageData?.extendedTextMessageData?.text;
+
+  if (!userMessage) {
+    return res.sendStatus(200);
+  }
+
+  await handleUserMessage(chatId, userMessage, "wa");
+
+  res.sendStatus(200);
+
 });
-
-async function sendFB(psid, message) {
 
   const PAGE_TOKEN = process.env.PAGE_TOKEN;
 
