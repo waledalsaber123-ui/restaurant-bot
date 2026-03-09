@@ -62,13 +62,13 @@ if (/^(تم|تمام|ايوا|ok|أكد|تاكيد|اوكي|خلص|تمامم)$/
 
         let reply = aiResponse.data.choices[0].message.content;
 // إذا ظهر ملخص الطلب ولم يظهر KITCHEN_GO
-if (reply.includes("🔔 طلب جديد") || reply.includes("ملخص")) {
+if (reply.includes("طلب جديد") || reply.includes("ملخص")) {
 
   session.lastKitchenMsg = reply;
 
   const confirmMsg =
-    reply +
-    "\n\nلتأكيد الطلب اكتب: تم ✅\nلتعديل الطلب اكتب التعديل.";
+  reply +
+  "\n\nلتأكيد الطلب اكتب كلمة: تم ✅";
 
   if (platform === "facebook") {
     await sendFB(chatId, confirmMsg);
