@@ -204,52 +204,7 @@ app.post("/webhook", async (req, res) => {
 
     res.sendStatus(200);
 });
-    if (!SESSIONS[chatId]) SESSIONS[chatId] = { history: [], lastKitchenMsg: null };
-    const session = SESSIONS[chatId];
-
-    let userMessage = body.messageData?.textMessageData?.textMessage || body.messageData?.extendedTextMessageData?.text;
-    if (!userMessage) return;
-// --- الجزء المصلح: منطق التأكيد والإرسال للجروب ---
-  if (/^(تم|تمام|ايوا|ok|أكد|تاكيد)$/i.test(userMessage.trim()) && session.lastKitchenMsg) {
-      await sendWA(SETTINGS.KITCHEN_GROUP, session.lastKitchenMsg); // إرسال لجروب المطبخ
-      await sendWA(chatId, "أبشر يا غالي، طلبك اعتمدناه وصار بالمطبخ! نورت مطعم صابر 🙏");
-      session.lastKitchenMsg = null; 
-      return; 
-  } 
-
-  try {
-      // كود الـ axios بكمل هون طبيعي...
-        const aiResponse = await axios.post("https://api.openai.com/v1/chat/completions", {
-            model: "gpt-4o", 
-            messages: [
-                { role: "system", content: getSystemPrompt() },
-                ...session.history.slice(-18), // 🚨 ذاكرة 18 رسالة كما طلبت
-                { role: "user", content: userMessage }
-            ],
-            temperature: 0
-        }, { headers: { Authorization: `Bearer ${SETTINGS.OPENAI_KEY}` }, timeout: 30000 });
-
-        let reply = aiResponse.data.choices[0].message.content;
-
-    if (reply.includes("[KITCHEN_GO]")) {
-            const parts = reply.split("[KITCHEN_GO]");
-            session.lastKitchenMsg = parts[1].trim();
-            const finalReply = parts[0].trim() + "\n\nأكتب 'تم' للتأكيد ✅";
-
-            // هاد السطر بقرر يبعث فيسبوك أو واتساب حسب نوع المنصة
-            platform === "facebook" ? await sendFB(chatId, finalReply) : await sendWA(chatId, finalReply);
-        } else {
-            let finalReply = reply;
-            if (session.lastKitchenMsg) {
-                finalReply += "\n\n⚠️ حبيبنا، بس نعتمد الطلب اللي فوق؟ أكتب 'تم' عشان نبلش نجهزلك اياه فوراً.";
-            }
-            platform === "facebook" ? await sendFB(chatId, finalReply) : await sendWA(chatId, finalReply);
-        }
-        });
-    } catch (err) {
-        console.log("Error FB:", err.message);
-    }
-}
+ 
 
 const errMsg = "أبشر يا غالي، بس ارجع ابعث رسالتك كمان مرة، كان في ضغط عالخط 🙏";
         platform === "facebook" ? await sendFB(chatId, errMsg) : await sendWA(chatId, errMsg);
