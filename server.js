@@ -191,6 +191,8 @@ app.post("/webhook", async (req, res) => {
     if (!userMessage) return;
 // --- الجزء المصلح: منطق التأكيد والإرسال للجروب ---
   if (/^(تم|تمام|ايوا|ok|أكد|تاكيد)$/i.test(userMessage.trim()) && session.lastKitchenMsg) {
+      console.log("Kitchen Msg:", session.lastKitchenMsg);
+console.log("User Msg:", userMessage);
       await sendWA(SETTINGS.KITCHEN_GROUP, session.lastKitchenMsg); // إرسال لجروب المطبخ
   console.log("ORDER SENT TO KITCHEN");
     await sendWA(chatId, "أبشر يا غالي، طلبك اعتمدناه وصار بالمطبخ! نورت مطعم صابر 🙏");
