@@ -263,10 +263,17 @@ async function sendFB(psid, message) {
 
 }
 async function sendWA(chatId, message) {
-    try {
-        await axios.post(`${SETTINGS.API_URL}/sendMessage/${SETTINGS.GREEN_TOKEN}`, { chatId, message });
-    } catch (err) {}
-}
+    try {
+        // التأكد من استخدام sendMessage endpoint
+        await axios.post(`${SETTINGS.API_URL}/sendMessage/${SETTINGS.GREEN_TOKEN}`, {
+            chatId: chatId,
+            message: message
+        });
+        console.log(`Message sent to ${chatId}`);
+    } catch (err) {
+        console.error("Error sending WA message:", err.response ? err.response.data : err.message);
+    }
+}}
   
 
 app.listen(3000, () => console.log("Saber Smart Engine is Live & Stable!"));
