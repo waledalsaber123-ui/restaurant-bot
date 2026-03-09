@@ -32,6 +32,27 @@ const SETTINGS = {
 const SESSIONS = {};
 async function handleUserMessage(chatId, userMessage, platform="wa") {
 
+if (!SESSIONS[chatId]) {
+SESSIONS[chatId] = { history: [], lastKitchenMsg: null };
+}
+if (/^(تم|تمام|ايوا|ok|أكد|تاكيد)$/i.test(userMessage.trim()) && session.lastKitchenMsg) {
+
+console.log("Kitchen Msg:", session.lastKitchenMsg);
+
+await sendWA(SETTINGS.KITCHEN_GROUP, session.lastKitchenMsg);
+
+console.log("ORDER SENT TO KITCHEN");
+
+if(platform === "facebook"){
+await sendFB(chatId,"أبشر يا غالي، طلبك وصل للمطبخ 🙏");
+}else{
+await sendWA(chatId,"أبشر يا غالي، طلبك وصل للمطبخ 🙏");
+}
+
+session.lastKitchenMsg = null;
+return;
+}
+const session = SESSIONS[chatId];
   
     try {
 
