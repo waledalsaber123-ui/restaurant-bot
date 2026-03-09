@@ -66,8 +66,8 @@ if (reply.includes("[KITCHEN_GO]")) {
 
   const parts = reply.split("[KITCHEN_GO]").filter(Boolean);
 
-  session.lastKitchenMsg = parts[1]?.trim();
-
+const parts = reply.split("[KITCHEN_GO]");
+session.lastKitchenMsg = parts[1]?.trim();
   const finalReply = parts[0].trim() + "\n\nاكتب تم للتأكيد ✅";
 
   platform === "facebook"
@@ -84,11 +84,6 @@ if (reply.includes("[KITCHEN_GO]")) {
   session.lastKitchenMsg = null;
 }
 
-            if(platform === "facebook"){
-                await sendFB(chatId, parts[0].trim() + "\n\nاكتب تم للتأكيد ✅");
-            }else{
-                await sendWA(chatId, parts[0].trim() + "\n\nاكتب تم للتأكيد ✅");
-            }
 
         } else {
 
