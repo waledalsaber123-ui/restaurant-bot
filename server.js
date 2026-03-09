@@ -32,23 +32,7 @@ const SETTINGS = {
 const SESSIONS = {};
 async function handleUserMessage(chatId, userMessage, platform="wa") {
 
-    if (!SESSIONS[chatId]) SESSIONS[chatId] = { history: [], lastKitchenMsg: null };
-    const session = SESSIONS[chatId];
-
-    if (/^(تم|تمام|ايوا|ok|أكد|تاكيد)$/i.test(userMessage.trim()) && session.lastKitchenMsg) {
-
-        await sendWA(SETTINGS.KITCHEN_GROUP, session.lastKitchenMsg);
-
-        if(platform === "facebook"){
-            await sendFB(chatId,"أبشر يا غالي، طلبك وصل للمطبخ 🙏");
-        }else{
-            await sendWA(chatId,"أبشر يا غالي، طلبك وصل للمطبخ 🙏");
-        }
-
-        session.lastKitchenMsg = null;
-        return;
-    }
-
+  
     try {
 
         const aiResponse = await axios.post("https://api.openai.com/v1/chat/completions", {
@@ -208,7 +192,8 @@ app.post("/webhook", async (req, res) => {
 // --- الجزء المصلح: منطق التأكيد والإرسال للجروب ---
   if (/^(تم|تمام|ايوا|ok|أكد|تاكيد)$/i.test(userMessage.trim()) && session.lastKitchenMsg) {
       await sendWA(SETTINGS.KITCHEN_GROUP, session.lastKitchenMsg); // إرسال لجروب المطبخ
-      await sendWA(chatId, "أبشر يا غالي، طلبك اعتمدناه وصار بالمطبخ! نورت مطعم صابر 🙏");
+  console.log("ORDER SENT TO KITCHEN");
+    await sendWA(chatId, "أبشر يا غالي، طلبك اعتمدناه وصار بالمطبخ! نورت مطعم صابر 🙏");
       session.lastKitchenMsg = null; 
       return; 
   } 
