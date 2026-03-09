@@ -63,8 +63,27 @@ async function handleUserMessage(chatId, userMessage, platform="wa") {
 
         let reply = aiResponse.data.choices[0].message.content;
 
-        if (reply.includes("[KITCHEN_GO]")) {
+if (reply.includes("[KITCHEN_GO]")) {
 
+  const parts = reply.split("[KITCHEN_GO]").filter(Boolean);
+
+  session.lastKitchenMsg = parts[1]?.trim();
+
+  const finalReply = parts[0].trim() + "\n\nاكتب تم للتأكيد ✅";
+
+  platform === "facebook"
+    ? await sendFB(chatId, finalReply)
+    : await sendWA(chatId, finalReply);
+
+}
+              if (session.lastKitchenMsg && /^(حالا|هلاء|تمام|اوكي)$/i.test(userMessage.trim())) {
+
+  await sendWA(SETTINGS.KITCHEN_GROUP, session.lastKitchenMsg);
+
+  await sendWA(chatId, "تم اعتماد الطلب وإرساله للمطبخ 🔥");
+
+  session.lastKitchenMsg = null;
+}
 const parts = reply.split("[KITCHEN_GO]").filter(Boolean);
           session.lastKitchenMsg = parts[1].trim();
 
@@ -130,12 +149,12 @@ const getSystemPrompt = () => {
 برجر الشاورما 1.25 دينار  
 قمبلة رمضان ( برجر 250 جرام ) ارتفاعها 17 سم تقريبا بسعر 2.25 
 خابور كباب ساندويش كباب طول 45 سم يحتوي على كباب بوزن 200 الى 250 غم و خلصه خاصه بسعر 2 دينار 
-الندويشات 
+الساندويشات
+ساندويش سكالوب 1.5 دينار
+ساندويش برجر لحمة 150 غم 1.5 دينار
+ساندويش شاورما عادي 1 دينار
+ساندويش شاورما سوبر 1.5 دينار
 برجر شاورما 1.25 دينار
-ساندويش  سكالوب 1.5
-ساندويش  برجر لحمة 150 غم 1.5 
-ساندويش شاورما عادي 1 دينار 
-ساندويش شاورما سوبر 1.5 دينار 
 ملاحطة لتحويل العروض و السندويشات الى وجبات ضيف دينار 
 🚚 **أسعار مناطق التوصيل (ممنوع تغييرها)**:.
 - **1.5 د.أ**: صويلح، إشارة الدوريات، مجدي مول، المختار مول.
@@ -165,6 +184,7 @@ const getSystemPrompt = () => {
 7.في حال الاستلام من الفرع: (الاسم، رقم الهاتف، الموعد، والطلب)و خد تاكيد صريح من العميل و قم بارسالها الى
 [KITCHEN_GO]  . (مهم: لا تطلب عنوان للاستلام).
 إذا قال الزبون "حالا" أو "بعد ساعة" أو "بعد نص ساعة" اعتبرها موعد صالح للطلب.
+إذا اكتملت معلومات الطلب (الاسم + الهاتف + الموعد + الطلب) قم فوراً بإظهار ملخص الطلب وإضافة [KITCHEN_GO].
 بمجرد توفر هذه المعلومات، اعرض ملخص الطلب فوراً متبوعاً بكود [KITCHEN_GO].
 [KITCHEN_GO]
 7. طلبات الاستلام و التوصيل الاسم و رقم الهاتف اجباري 
