@@ -46,8 +46,8 @@ async function handleUserMessage(chatId, userMessage, platform="wa") {
         }, { headers: { Authorization: `Bearer ${SETTINGS.OPENAI_KEY}` }});
 
         let reply = aiResponse.data.choices[0].message.content;
-
-        if (reply.includes("[KITCHEN_GO]")) {
+console.log("AI reply:", reply);
+if (reply.indexOf("[KITCHEN_GO]") !== -1) {              
 
             const parts = reply.split("[KITCHEN_GO]");
             session.lastKitchenMsg = parts[1].trim();
@@ -213,9 +213,9 @@ console.log("User Msg:", userMessage);
         }, { headers: { Authorization: `Bearer ${SETTINGS.OPENAI_KEY}` }, timeout: 30000 });
 
         let reply = aiResponse.data.choices[0].message.content;
-
-    if (reply.includes("[KITCHEN_GO]")) {
-            const parts = reply.split("[KITCHEN_GO]");
+console.log("AI reply:", reply);
+if (reply.indexOf("[KITCHEN_GO]") !== -1) {
+      const parts = reply.split("[KITCHEN_GO]");
             session.lastKitchenMsg = parts[1].trim();
             const finalReply = parts[0].trim() + "\n\nأكتب 'تم' للتأكيد ✅";
 
