@@ -200,57 +200,7 @@ app.post("/webhook", async (req, res) => {
 
     res.sendStatus(200);
 });
-    if (!SESSIONS[chatId]) SESSIONS[chatId] = { history: [], lastKitchenMsg: null };
-    const session = SESSIONS[chatId];
-
-    let userMessage = body.messageData?.textMessageData?.textMessage || body.messageData?.extendedTextMessageData?.text;
-    if (!userMessage) return;
-// --- الجزء المصلح: منطق التأكيد والإرسال للجروب ---
-  if (/^(تم|تمام|ايوا|ok|أكد|تاكيد)$/i.test(userMessage.trim()) && session.lastKitchenMsg) {
-      await sendWA(SETTINGS.KITCHEN_GROUP, session.lastKitchenMsg); // إرسال لجروب المطبخ
-      await sendWA(chatId, "أبشر يا غالي، طلبك اعتمدناه وصار بالمطبخ! نورت مطعم صابر 🙏");
-      session.lastKitchenMsg = null; 
-      return; 
-  } 
-
-  try {
-      // كود الـ axios بكمل هون طبيعي...
-        const aiResponse = await axios.post("https://api.openai.com/v1/chat/completions", {
-            model: "gpt-4o", 
-            messages: [
-                { role: "system", content: getSystemPrompt() },
-                ...session.history.slice(-18), // 🚨 ذاكرة 18 رسالة كما طلبت
-                { role: "user", content: userMessage }
-            ],
-            temperature: 0
-        }, { headers: { Authorization: `Bearer ${SETTINGS.OPENAI_KEY}` }, timeout: 30000 });
-
-        let reply = aiResponse.data.choices[0].message.content;
-
-   // --- هون بنعالج رد الذكاء الاصطناعي ---
-        if (reply.includes("[KITCHEN_GO]")) {
-            const parts = reply.split("[KITCHEN_GO]");
-            
-            // تخزين ملخص الطلب (سواء استلام أو توصيل) بانتظار كلمة "تم"
-            session.lastKitchenMsg = parts[1].trim(); 
-
-            const finalReply = parts[0].trim() + "\n\nاكتب تم للتأكيد ✅";
-            platform === "facebook" ? await sendFB(chatId, finalReply) : await sendWA(chatId, finalReply);
-        } else {
-            // رد عادي إذا لسا البيانات مش كاملة
-            platform === "facebook" ? await sendFB(chatId, reply) : await sendWA(chatId, reply);
-        }
-
-        // حفظ المحادثة في الذاكرة
-        session.history.push({ role: "user", content: userMessage }, { role: "assistant", content: reply });
-
-    } catch (err) {
-        console.log("Error:", err.message);
-        const errMsg = "أبشر يا غالي، بس ارجع ابعث رسالتك كمان مرة، كان في ضغط عالخط 🙏";
-        platform === "facebook" ? await sendFB(chatId, errMsg) : await sendWA(chatId, errMsg);
-    }
-} // نهاية دالة handleUserMessage
-} // نهاية دالة handleUserMessage
+ 
 
 // دالة إرسال الفيسبوك
 async function sendFB(psid, message) {
@@ -273,6 +223,18 @@ async function sendFB(psid, message) {
         console.log("Error FB:", err.response?.data || err.message);
     }
 }
-  
+ async function sendWA(chatId, message) {
+    try {
+        await axios.post(
+            `${SETTINGS.API_URL}/sendMessage/${SETTINGS.GREEN_TOKEN}`,
+            {
+                chatId: chatId,
+                message: message
+            }
+        );
+    } catch (err) {
+        console.log("WA Error:", err.response?.data || err.message);
+    }
+} 
 
 app.listen(3000, () => console.log("Saber Smart Engine is Live & Stable!"));
