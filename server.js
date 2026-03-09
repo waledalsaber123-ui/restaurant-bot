@@ -3,94 +3,85 @@ import axios from "axios";
 
 const app = express();
 app.use(express.json());
-/* Facebook webhook verification */
-app.get("/webhook", (req, res) => {
-  const VERIFY_TOKEN = "SaberJo_Secret_2026";
 
-  const mode = req.query["hub.mode"];
-  const token = req.query["hub.verify_token"];
-  const challenge = req.query["hub.challenge"];
-
-  if (mode && token) {
-    if (mode === "subscribe" && token === VERIFY_TOKEN) {
-      console.log("WEBHOOK VERIFIED");
-      res.status(200).send(challenge);
-    } else {
-      res.sendStatus(403);
-    }
-  }
-});
 const SETTINGS = {
-    OPENAI_KEY: process.env.OPENAI_KEY,
-    GREEN_TOKEN: process.env.GREEN_TOKEN,
-    ID_INSTANCE: process.env.ID_INSTANCE,
-    PAGE_TOKEN: process.env.PAGE_TOKEN, // 👈 هاد السطر ضروري ضيفه هون
-    KITCHEN_GROUP: "120363407952234395@g.us",
-    API_URL: `https://7103.api.greenapi.com/waInstance${process.env.ID_INSTANCE}`
+    OPENAI_KEY: process.env.OPENAI_KEY,
+    GREEN_TOKEN: process.env.GREEN_TOKEN,
+    ID_INSTANCE: process.env.ID_INSTANCE,
+    PAGE_TOKEN: process.env.PAGE_TOKEN,
+    KITCHEN_GROUP: "120363407952234395@g.us",
+    API_URL: `https://7103.api.greenapi.com/waInstance${process.env.ID_INSTANCE}`
 };
 
 const SESSIONS = {};
-async function handleUserMessage(chatId, userMessage, platform="wa") {
 
-    if (!SESSIONS[chatId]) SESSIONS[chatId] = { history: [], lastKitchenMsg: null };
-    const session = SESSIONS[chatId];
-
-    if (/^(تم|تمام|ايوا|ok|أكد|تاكيد)$/i.test(userMessage.trim()) && session.lastKitchenMsg) {
-
-        await sendWA(SETTINGS.KITCHEN_GROUP, session.lastKitchenMsg);
-
-        if(platform === "facebook"){
-            await sendFB(chatId,"أبشر يا غالي، طلبك وصل للمطبخ 🙏");
-        }else{
-            await sendWA(chatId,"أبشر يا غالي، طلبك وصل للمطبخ 🙏");
-        }
-
-        session.lastKitchenMsg = null;
-        return;
-    }
-
-    try {
-
-        const aiResponse = await axios.post("https://api.openai.com/v1/chat/completions", {
-            model: "gpt-4o",
-            messages: [
-                { role: "system", content: getSystemPrompt() },
-                ...session.history.slice(-18),
-                { role: "user", content: userMessage }
-            ],
-            temperature: 0
-        }, { headers: { Authorization: `Bearer ${SETTINGS.OPENAI_KEY}` }});
-
-        let reply = aiResponse.data.choices[0].message.content;
-
-        if (reply.includes("[KITCHEN_GO]")) {
-
-            const parts = reply.split("[KITCHEN_GO]");
-            session.lastKitchenMsg = parts[1].trim();
-
-            if(platform === "facebook"){
-                await sendFB(chatId, parts[0].trim() + "\n\nاكتب تم للتأكيد ✅");
-            }else{
-                await sendWA(chatId, parts[0].trim() + "\n\nاكتب تم للتأكيد ✅");
-            }
-
-        } else {
-
-            if(platform === "facebook"){
-                await sendFB(chatId, reply);
-            }else{
-                await sendWA(chatId, reply);
-            }
-
-        }
-
-        session.history.push({ role: "user", content: userMessage }, { role: "assistant", content: reply });
-
-    } catch (err) {
-        console.log(err.message);
-    }
+// دالة إرسال واتساب (GreenAPI)
+async function sendWA(chatId, message) {
+    try {
+        await axios.post(`${SETTINGS.API_URL}/sendMessage/${SETTINGS.GREEN_TOKEN}`, {
+            chatId: chatId,
+            message: message
+        });
+    } catch (err) { console.log("WA Error:", err.message); }
 }
-/* ================= نظام البرومبت الموحد والشامل ================= */
+
+// دالة إرسال فيسبوك
+async function sendFB(psid, message) {
+    try {
+        await axios.post(`https://graph.facebook.com/v21.0/me/messages?access_token=${SETTINGS.PAGE_TOKEN}`, {
+            recipient: { id: psid },
+            message: { text: message }
+        });
+    } catch (err) { console.log("FB Error:", err.response?.data || err.message); }
+}
+
+async function handleUserMessage(chatId, userMessage, platform = "wa") {
+    if (!SESSIONS[chatId]) SESSIONS[chatId] = { history: [], lastKitchenMsg: null };
+    const session = SESSIONS[chatId];
+
+    // 1. منطق التأكيد (تم) - يطبق على التوصيل والاستلام
+    if (/^(تم|تمام|ايوا|ok|أكد|تاكيد)$/i.test(userMessage.trim()) && session.lastKitchenMsg) {
+        await sendWA(SETTINGS.KITCHEN_GROUP, session.lastKitchenMsg);
+        const successMsg = "أبشر يا غالي، طلبك اعتمدناه وصار بالمطبخ! نورت مطعم صابر 🙏";
+        platform === "facebook" ? await sendFB(chatId, successMsg) : await sendWA(chatId, successMsg);
+        session.lastKitchenMsg = null; 
+        return;
+    }
+
+    try {
+        const aiResponse = await axios.post("https://api.openai.com/v1/chat/completions", {
+            model: "gpt-4o",
+            messages: [
+                { role: "system", content: getSystemPrompt() },
+                ...session.history.slice(-18),
+                { role: "user", content: userMessage }
+            ],
+            temperature: 0
+        }, { headers: { Authorization: `Bearer ${SETTINGS.OPENAI_KEY}` }, timeout: 30000 });
+
+        let reply = aiResponse.data.choices[0].message.content;
+
+        // 2. معالجة كود المطبخ (KITCHEN_GO)
+        if (reply.includes("[KITCHEN_GO]")) {
+            const parts = reply.split("[KITCHEN_GO]");
+            session.lastKitchenMsg = parts[1].trim(); // حفظ ملخص الطلب (استلام أو توصيل)
+            const finalReply = parts[0].trim() + "\n\nاكتب 'تم' للتأكيد ✅";
+            platform === "facebook" ? await sendFB(chatId, finalReply) : await sendWA(chatId, finalReply);
+        } else {
+            platform === "facebook" ? await sendFB(chatId, reply) : await sendWA(chatId, reply);
+        }
+
+        session.history.push({ role: "user", content: userMessage }, { role: "assistant", content: reply });
+
+    } catch (err) {
+        console.log("Error:", err.message);
+        const errMsg = "أبشر يا غالي، بس ارجع ابعث رسالتك كمان مرة، كان في ضغط عالخط 🙏";
+        platform === "facebook" ? await sendFB(chatId, errMsg) : await sendWA(chatId, errMsg);
+    }
+}
+
+const getSystemPrompt = () => {
+ /* ================= نظام البرومبت الموحد والشامل ================= */
 const getSystemPrompt = () => {
     return `
 أنت "صابر"، المسؤول عن الطلبات في مطعم (صابر جو سناك) في عمان. شخصيتك نشمية، خدومة، وبتحكي بلهجة أردنية.
@@ -125,6 +116,7 @@ const getSystemPrompt = () => {
 مشروب غازي 250  مل 35 قرش 
 مشروب غازي لتر 50 قرش 
 العروض الي نركز عليها اكتر شي و نرفع منها سلة الشراء 
+ساندويشة برجر شاورما 1.25 دينار
 ساندويش زنجر ديناميت 45 سم متوسط الحرارة مناسب للاطفال و الكبار 1 دينار 
 صاروخ الشاورما 45 سم 1.5 دينار 
 قمبلة رمضان ( برجر 250 جرام ) ارتفاعها 17 سم تقريبا بسعر 2.25 
@@ -175,105 +167,27 @@ const getSystemPrompt = () => {
 إذا في أي تعديل، تواصل هاتفياً مع المطعم: 0796893403. شكراً لطلبك.
 `;
 };
-app.post("/webhook", async (req, res) => {
-    const body = req.body;
 
-    // 1. إذا الرسالة من فيسبوك أو إنستغرام
-    if (body.object === "page" || body.object === "instagram") {
-        const messaging = body.entry?.[0]?.messaging?.[0];
-        if (messaging?.message?.text) {
-            await handleUserMessage(messaging.sender.id, messaging.message.text, "facebook");
-        }
-        return res.sendStatus(200);
-    }
-
-    // 2. إذا الرسالة من واتساب (GreenAPI)
-    if (body.typeWebhook === "incomingMessageReceived") {
-        const chatId = body.senderData?.chatId;
-        const text = body.messageData?.textMessageData?.textMessage || body.messageData?.extendedTextMessageData?.text;
-        
-        if (chatId && !chatId.endsWith("@g.us") && text) {
-            await handleUserMessage(chatId, text, "wa");
-        }
-        return res.sendStatus(200);
-    }
-
-    res.sendStatus(200);
+// Webhook Verification
+app.get("/webhook", (req, res) => {
+    const VERIFY_TOKEN = "SaberJo_Secret_2026";
+    if (req.query["hub.mode"] === "subscribe" && req.query["hub.verify_token"] === VERIFY_TOKEN) {
+        res.status(200).send(req.query["hub.challenge"]);
+    } else { res.sendStatus(403); }
 });
-    if (!SESSIONS[chatId]) SESSIONS[chatId] = { history: [], lastKitchenMsg: null };
-    const session = SESSIONS[chatId];
 
-    let userMessage = body.messageData?.textMessageData?.textMessage || body.messageData?.extendedTextMessageData?.text;
-    if (!userMessage) return;
-// --- الجزء المصلح: منطق التأكيد والإرسال للجروب ---
-  if (/^(تم|تمام|ايوا|ok|أكد|تاكيد)$/i.test(userMessage.trim()) && session.lastKitchenMsg) {
-      await sendWA(SETTINGS.KITCHEN_GROUP, session.lastKitchenMsg); // إرسال لجروب المطبخ
-      await sendWA(chatId, "أبشر يا غالي، طلبك اعتمدناه وصار بالمطبخ! نورت مطعم صابر 🙏");
-      session.lastKitchenMsg = null; 
-      return; 
-  } 
-
-  try {
-      // كود الـ axios بكمل هون طبيعي...
-        const aiResponse = await axios.post("https://api.openai.com/v1/chat/completions", {
-            model: "gpt-4o", 
-            messages: [
-                { role: "system", content: getSystemPrompt() },
-                ...session.history.slice(-18), // 🚨 ذاكرة 18 رسالة كما طلبت
-                { role: "user", content: userMessage }
-            ],
-            temperature: 0
-        }, { headers: { Authorization: `Bearer ${SETTINGS.OPENAI_KEY}` }, timeout: 30000 });
-
-        let reply = aiResponse.data.choices[0].message.content;
-
-   // --- هون بنعالج رد الذكاء الاصطناعي ---
-        if (reply.includes("[KITCHEN_GO]")) {
-            const parts = reply.split("[KITCHEN_GO]");
-            
-            // تخزين ملخص الطلب (سواء استلام أو توصيل) بانتظار كلمة "تم"
-            session.lastKitchenMsg = parts[1].trim(); 
-
-            const finalReply = parts[0].trim() + "\n\nاكتب تم للتأكيد ✅";
-            platform === "facebook" ? await sendFB(chatId, finalReply) : await sendWA(chatId, finalReply);
-        } else {
-            // رد عادي إذا لسا البيانات مش كاملة
-            platform === "facebook" ? await sendFB(chatId, reply) : await sendWA(chatId, reply);
-        }
-
-        // حفظ المحادثة في الذاكرة
-        session.history.push({ role: "user", content: userMessage }, { role: "assistant", content: reply });
-
-    } catch (err) {
-        console.log("Error:", err.message);
-        const errMsg = "أبشر يا غالي، بس ارجع ابعث رسالتك كمان مرة، كان في ضغط عالخط 🙏";
-        platform === "facebook" ? await sendFB(chatId, errMsg) : await sendWA(chatId, errMsg);
+// Webhook Receiver
+app.post("/webhook", async (req, res) => {
+    const body = req.body;
+    if (body.object === "page" || body.object === "instagram") {
+        const messaging = body.entry?.[0]?.messaging?.[0];
+        if (messaging?.message?.text) await handleUserMessage(messaging.sender.id, messaging.message.text, "facebook");
+    } else if (body.typeWebhook === "incomingMessageReceived") {
+        const chatId = body.senderData?.chatId;
+        const text = body.messageData?.textMessageData?.textMessage || body.messageData?.extendedTextMessageData?.text;
+        if (chatId && !chatId.endsWith("@g.us") && text) await handleUserMessage(chatId, text, "wa");
     }
-} // نهاية دالة handleUserMessage
-} // نهاية دالة handleUserMessage
-
-// دالة إرسال الفيسبوك
-async function sendFB(psid, message) {
-    try {
-        await axios.post(`https://graph.facebook.com/v21.0/me/messages?access_token=${SETTINGS.PAGE_TOKEN}`, {
-            recipient: { id: psid },
-            message: { text: message }
-        });
-    } catch (err) {
-        console.log("Error FB:", err.response?.data || err.message);
-    }
-}
- async function sendFB(psid, message) {
-    try {
-        await axios.post(`https://graph.facebook.com/v21.0/me/messages?access_token=${SETTINGS.PAGE_TOKEN}`, {
-            recipient: { id: psid },
-            message: { text: message }
-        });
-    } catch (err) {
-        console.log("Error FB:", err.response?.data || err.message);
-    }
-}
-  
+    res.sendStatus(200);
+});
 
 app.listen(3000, () => console.log("Saber Smart Engine is Live & Stable!"));
-
