@@ -24,7 +24,8 @@ const SETTINGS = {
     OPENAI_KEY: process.env.OPENAI_KEY,
     GREEN_TOKEN: process.env.GREEN_TOKEN,
     ID_INSTANCE: process.env.ID_INSTANCE,
-  KITCHEN_GROUP: "120363407952234395@g.us", 
+    PAGE_TOKEN: process.env.PAGE_TOKEN, // 👈 هاد السطر ضروري ضيفه هون
+    KITCHEN_GROUP: "120363407952234395@g.us",
     API_URL: `https://7103.api.greenapi.com/waInstance${process.env.ID_INSTANCE}`
 };
 
@@ -156,8 +157,11 @@ const getSystemPrompt = () => {
 3. حساب المجموع الإجمالي = (سعر الأصناف + أجور التوصيل).
 4. بعد كود [KITCHEN_GO]، يجب صياغة الرسالة كالتالي حصراً:
 5. إذا سألك الزبون سؤالاً جانبياً (مثل الموقع، السعر، أو وقت الدوام) وكان هناك طلب لم يتم تأكيده بكلمة 'تم' بعد، أجب على سؤاله باختصار ثم ذكّره بلطف بضرورة كتابة 'تم' لإرسال طلبه للمطبخ."
-6. 1. إجباري: لا ترسل [KITCHEN_GO]  إلا إذا كتب الزبون رقم هاتفه بالأرقام. يمنع قبول كلمة 'نفس الرقم' أو 'عندكم'؛ يجب أن يكتب الرقمو يجب ان يكون رقم الهاتف من بلزبط  10 خانات و يبداء ب  07 (مثلاً 07xxxxxxxx) ليظهر في ملخص الطلب.
+6.إجباري: لا ترسل [KITCHEN_GO]  إلا إذا كتب الزبون رقم هاتفه بالأرقام. يمنع قبول كلمة 'نفس الرقم' أو 'عندكم'؛ يجب أن يكتب الرقمو يجب ان يكون رقم الهاتف من بلزبط  10 خانات و يبداء ب  07 (مثلاً 07xxxxxxxx) ليظهر في ملخص الطلب.
+7.في حال الاستلام من الفرع: (الاسم، رقم الهاتف، الموعد، والطلب). (مهم: لا تطلب عنوان للاستلام).
+بمجرد توفر هذه المعلومات، اعرض ملخص الطلب فوراً متبوعاً بكود [KITCHEN_GO].
 [KITCHEN_GO]
+7. طلبات الاستلام و التوصيل الاسم و رقم الهاتف اجباري 
 🔔 طلب جديد مؤكد!
 - النوع: [توصيل أو استلام]
 - الاسم: [الاسم الكامل]
@@ -171,66 +175,31 @@ const getSystemPrompt = () => {
 إذا في أي تعديل، تواصل هاتفياً مع المطعم: 0796893403. شكراً لطلبك.
 `;
 };
-
-/* ================= المحرك الرئيسي الموحد ================= */
-app.all("/webhook", async (req, res) => {
-
-  const body = req.body;
-
-  // Messenger + Instagram
-  if (body.object === "page" || body.object === "instagram") {
-
-    for (const entry of body.entry) {
-
-      if (entry.messaging) {
-
-        for (const event of entry.messaging) {
-
-          if (event.message && event.message.text) {
-
-            const senderId = event.sender.id;
-            const userMessage = event.message.text;
-
-            await handleUserMessage(senderId, userMessage, "facebook");
-
-          }
-
-        }
-
-      }
-
-    }
-
-    return res.sendStatus(200);
-  }
-
-  // WhatsApp GreenAPI
-  if (body.typeWebhook === "incomingMessageReceived") {
-
-    const chatId = body.senderData?.chatId;
-
-    if (chatId && !chatId.endsWith("@g.us")) {
-
-      let userMessage =
-        body.messageData?.textMessageData?.textMessage ||
-        body.messageData?.extendedTextMessageData?.text;
-
-      if (userMessage) {
-        await handleUserMessage(chatId, userMessage, "wa");
-      }
-
-    }
-
-  }
-
-  res.sendStatus(200);
-});
+app.post("/webhook", async (req, res) => {
     const body = req.body;
-    if (body.typeWebhook !== "incomingMessageReceived") return;
 
-    const chatId = body.senderData?.chatId;
-    if (!chatId || chatId.endsWith("@g.us")) return;
+    // 1. إذا الرسالة من فيسبوك أو إنستغرام
+    if (body.object === "page" || body.object === "instagram") {
+        const messaging = body.entry?.[0]?.messaging?.[0];
+        if (messaging?.message?.text) {
+            await handleUserMessage(messaging.sender.id, messaging.message.text, "facebook");
+        }
+        return res.sendStatus(200);
+    }
 
+    // 2. إذا الرسالة من واتساب (GreenAPI)
+    if (body.typeWebhook === "incomingMessageReceived") {
+        const chatId = body.senderData?.chatId;
+        const text = body.messageData?.textMessageData?.textMessage || body.messageData?.extendedTextMessageData?.text;
+        
+        if (chatId && !chatId.endsWith("@g.us") && text) {
+            await handleUserMessage(chatId, text, "wa");
+        }
+        return res.sendStatus(200);
+    }
+
+    res.sendStatus(200);
+});
     if (!SESSIONS[chatId]) SESSIONS[chatId] = { history: [], lastKitchenMsg: null };
     const session = SESSIONS[chatId];
 
@@ -258,52 +227,52 @@ app.all("/webhook", async (req, res) => {
 
         let reply = aiResponse.data.choices[0].message.content;
 
-      if (reply.includes("[KITCHEN_GO]")) {
-            const parts = reply.split("[KITCHEN_GO]");
-            session.lastKitchenMsg = parts[1].trim();
-            
-            // إرسال ملخص الطلب مع طلب التأكيد
-            await sendWA(chatId, parts[0].trim() + "\n\nأكتب 'تم' للتأكيد ✅");
-        } else {
-            // إذا العميل سأل سؤال جانبي وكان في طلب معلق، بنذكره
-            let finalReply = reply;
-            if (session.lastKitchenMsg) {
-                finalReply += "\n\n⚠️ حبيبنا، بس نعتمد الطلب اللي فوق؟ أكتب 'تم' عشان نبلش نجهزلك اياه فوراً.";
-            }
-            await sendWA(chatId, finalReply);
-        }
+   // --- هون بنعالج رد الذكاء الاصطناعي ---
+        if (reply.includes("[KITCHEN_GO]")) {
+            const parts = reply.split("[KITCHEN_GO]");
+            
+            // تخزين ملخص الطلب (سواء استلام أو توصيل) بانتظار كلمة "تم"
+            session.lastKitchenMsg = parts[1].trim(); 
 
-        session.history.push({ role: "user", content: userMessage }, { role: "assistant", content: reply });
-        if (session.history.length > 50) session.history.splice(0, 2);
+            const finalReply = parts[0].trim() + "\n\nاكتب تم للتأكيد ✅";
+            platform === "facebook" ? await sendFB(chatId, finalReply) : await sendWA(chatId, finalReply);
+        } else {
+            // رد عادي إذا لسا البيانات مش كاملة
+            platform === "facebook" ? await sendFB(chatId, reply) : await sendWA(chatId, reply);
+        }
 
-    } catch (err) {
-        console.error("Error:", err.message);
-        await sendWA(chatId, "أبشر يا غالي، بس ارجع ابعث رسالتك كمان مرة، كان في ضغط عالخط 🙏");
-    }
-});
+        // حفظ المحادثة في الذاكرة
+        session.history.push({ role: "user", content: userMessage }, { role: "assistant", content: reply });
 
+    } catch (err) {
+        console.log("Error:", err.message);
+        const errMsg = "أبشر يا غالي، بس ارجع ابعث رسالتك كمان مرة، كان في ضغط عالخط 🙏";
+        platform === "facebook" ? await sendFB(chatId, errMsg) : await sendWA(chatId, errMsg);
+    }
+} // نهاية دالة handleUserMessage
+} // نهاية دالة handleUserMessage
+
+// دالة إرسال الفيسبوك
 async function sendFB(psid, message) {
-
-  const PAGE_TOKEN = process.env.PAGE_TOKEN;
-
-await axios.post(
-  "https://graph.facebook.com/v19.0/me/messages",
-  {
-    recipient: { id: psid },
-    message: { text: message }
-  },
-  {
-    params: { access_token: PAGE_TOKEN }
-  }
-);
+    try {
+        await axios.post(`https://graph.facebook.com/v21.0/me/messages?access_token=${SETTINGS.PAGE_TOKEN}`, {
+            recipient: { id: psid },
+            message: { text: message }
+        });
+    } catch (err) {
+        console.log("Error FB:", err.response?.data || err.message);
+    }
 }
-async function sendWA(chatId, message) {
+ async function sendFB(psid, message) {
     try {
-        await axios.post(`${SETTINGS.API_URL}/sendMessage/${SETTINGS.GREEN_TOKEN}`, { chatId, message });
-    } catch (err) {}
+        await axios.post(`https://graph.facebook.com/v21.0/me/messages?access_token=${SETTINGS.PAGE_TOKEN}`, {
+            recipient: { id: psid },
+            message: { text: message }
+        });
+    } catch (err) {
+        console.log("Error FB:", err.response?.data || err.message);
+    }
 }
   
 
 app.listen(3000, () => console.log("Saber Smart Engine is Live & Stable!"));
-
-
