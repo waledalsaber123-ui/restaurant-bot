@@ -34,7 +34,23 @@ async function handleUserMessage(chatId, userMessage, platform="wa") {
 
     if (!SESSIONS[chatId]) SESSIONS[chatId] = { history: [], lastKitchenMsg: null };
     const session = SESSIONS[chatId];
+// تأكيد الطلب بعد عرض الملخص
+if (
+  /^(تم|تمام|ايوا|ok|أكد|تاكيد|اوكي|خلص|تمامم)$/i.test(userMessage.trim()) &&
+  session.lastKitchenMsg
+) {
 
+  await sendWA(SETTINGS.KITCHEN_GROUP, session.lastKitchenMsg);
+
+  if (platform === "facebook") {
+    await sendFB(chatId, "🔥 تم تأكيد الطلب وإرساله للمطبخ");
+  } else {
+    await sendWA(chatId, "🔥 تم تأكيد الطلب وإرساله للمطبخ");
+  }
+
+  session.lastKitchenMsg = null;
+  return;
+}
 if (/^(تم|تمام|ايوا|ok|أكد|تاكيد|اوكي|خلص|تمامم)$/i.test(userMessage.trim()) && session.lastKitchenMsg) {
 
     await sendWA(SETTINGS.KITCHEN_GROUP, session.lastKitchenMsg);
@@ -80,9 +96,12 @@ if (reply.includes("طلب جديد") || reply.includes("ملخص")) {
 }
 if (reply.includes("[KITCHEN_GO]")) {
 
-  const parts = reply.split("[KITCHEN_GO]").filter(Boolean);
+  const parts =const parts = reply.split("[KITCHEN_GO]");
 
-const parts = reply.split("[KITCHEN_GO]");
+session.lastKitchenMsg = parts[1]?.trim();
+
+const finalReply = parts[0].trim() + "\n\nاكتب تم للتأكيد ✅";
+    
 session.lastKitchenMsg = parts[1]?.trim();
   const finalReply = parts[0].trim() + "\n\nاكتب تم للتأكيد ✅";
 
@@ -90,14 +109,6 @@ session.lastKitchenMsg = parts[1]?.trim();
     ? await sendFB(chatId, finalReply)
     : await sendWA(chatId, finalReply);
 
-}
-              if (session.lastKitchenMsg && /^(حالا|هلاء|تمام|اوكي)$/i.test(userMessage.trim())) {
-
-  await sendWA(SETTINGS.KITCHEN_GROUP, session.lastKitchenMsg);
-
-  await sendWA(chatId, "تم اعتماد الطلب وإرساله للمطبخ 🔥");
-
-  session.lastKitchenMsg = null;
 }
 
 
