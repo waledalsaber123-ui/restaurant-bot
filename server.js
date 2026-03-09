@@ -24,7 +24,8 @@ const SETTINGS = {
     OPENAI_KEY: process.env.OPENAI_KEY,
     GREEN_TOKEN: process.env.GREEN_TOKEN,
     ID_INSTANCE: process.env.ID_INSTANCE,
-  KITCHEN_GROUP: "120363407952234395@g.us", 
+    PAGE_TOKEN: process.env.PAGE_TOKEN, // 👈 هاد السطر ضروري ضيفه هون
+    KITCHEN_GROUP: "120363407952234395@g.us",
     API_URL: `https://7103.api.greenapi.com/waInstance${process.env.ID_INSTANCE}`
 };
 
@@ -51,11 +52,10 @@ async function handleUserMessage(chatId, userMessage, platform="wa") {
     try {
 
         const aiResponse = await axios.post("https://api.openai.com/v1/chat/completions", {
-            model: "gpt-4o-mini",
-          max_tokens: 150
+            model: "gpt-4o",
             messages: [
                 { role: "system", content: getSystemPrompt() },
-                ...session.history.slice(-8),
+                ...session.history.slice(-18),
                 { role: "user", content: userMessage }
             ],
             temperature: 0
@@ -125,10 +125,8 @@ const getSystemPrompt = () => {
 مشروب غازي 250  مل 35 قرش 
 مشروب غازي لتر 50 قرش 
 العروض الي نركز عليها اكتر شي و نرفع منها سلة الشراء 
-ساندويش زنجر ديناميت 45 سم متوسط الحرارة مناسب للاطفال و الكبار 1 دينار  
+ساندويش زنجر ديناميت 45 سم متوسط الحرارة مناسب للاطفال و الكبار 1 دينار 
 صاروخ الشاورما 45 سم 1.5 دينار 
-برجر الشاورما 1.25 دينار 
-برجر شاورما 1.5 دينار
 قمبلة رمضان ( برجر 250 جرام ) ارتفاعها 17 سم تقريبا بسعر 2.25 
 خابور كباب ساندويش كباب طول 45 سم يحتوي على كباب بوزن 200 الى 250 غم و خلصه خاصه بسعر 2 دينار 
 الندويشات 
@@ -159,8 +157,11 @@ const getSystemPrompt = () => {
 3. حساب المجموع الإجمالي = (سعر الأصناف + أجور التوصيل).
 4. بعد كود [KITCHEN_GO]، يجب صياغة الرسالة كالتالي حصراً:
 5. إذا سألك الزبون سؤالاً جانبياً (مثل الموقع، السعر، أو وقت الدوام) وكان هناك طلب لم يتم تأكيده بكلمة 'تم' بعد، أجب على سؤاله باختصار ثم ذكّره بلطف بضرورة كتابة 'تم' لإرسال طلبه للمطبخ."
-6. 1. إجباري: لا ترسل [KITCHEN_GO] إلا إذا كتب الزبون رقم هاتفه بالأرقام. يمنع قبول كلمة 'نفس الرقم' أو 'عندكم'؛ يجب أن يكتب الرقم (مثلاً 07xxxxxxxx) ليظهر في ملخص الطلب.
+6.إجباري: لا ترسل [KITCHEN_GO]  إلا إذا كتب الزبون رقم هاتفه بالأرقام. يمنع قبول كلمة 'نفس الرقم' أو 'عندكم'؛ يجب أن يكتب الرقمو يجب ان يكون رقم الهاتف من بلزبط  10 خانات و يبداء ب  07 (مثلاً 07xxxxxxxx) ليظهر في ملخص الطلب.
+7.في حال الاستلام من الفرع: (الاسم، رقم الهاتف، الموعد، والطلب). (مهم: لا تطلب عنوان للاستلام).
+بمجرد توفر هذه المعلومات، اعرض ملخص الطلب فوراً متبوعاً بكود [KITCHEN_GO].
 [KITCHEN_GO]
+7. طلبات الاستلام و التوصيل الاسم و رقم الهاتف اجباري 
 🔔 طلب جديد مؤكد!
 - النوع: [توصيل أو استلام]
 - الاسم: [الاسم الكامل]
@@ -174,107 +175,93 @@ const getSystemPrompt = () => {
 إذا في أي تعديل، تواصل هاتفياً مع المطعم: 0796893403. شكراً لطلبك.
 `;
 };
-
-/* ================= المحرك الرئيسي المصلح ================= */
 app.post("/webhook", async (req, res) => {
+    const body = req.body;
 
-  console.log("INCOMING WEBHOOK:");
-  console.log(JSON.stringify(req.body, null, 2));
+    // 1. إذا الرسالة من فيسبوك أو إنستغرام
+    if (body.object === "page" || body.object === "instagram") {
+        const messaging = body.entry?.[0]?.messaging?.[0];
+        if (messaging?.message?.text) {
+            await handleUserMessage(messaging.sender.id, messaging.message.text, "facebook");
+        }
+        return res.sendStatus(200);
+    }
 
-  const body = req.body;
+    // 2. إذا الرسالة من واتساب (GreenAPI)
+    if (body.typeWebhook === "incomingMessageReceived") {
+        const chatId = body.senderData?.chatId;
+        const text = body.messageData?.textMessageData?.textMessage || body.messageData?.extendedTextMessageData?.text;
+        
+        if (chatId && !chatId.endsWith("@g.us") && text) {
+            await handleUserMessage(chatId, text, "wa");
+        }
+        return res.sendStatus(200);
+    }
 
-  /* Facebook / Instagram */
-
-  if (body.object === "page" || body.object === "instagram") {
-
-    for (const entry of body.entry) {
-
-      if (entry.messaging) {
-        for (const event of entry.messaging) {
-
-          const senderId = event.sender.id;
-
-          if (event.message && event.message.text) {
-            await handleUserMessage(senderId, event.message.text, "facebook");
-          }
-
-        }
-      }
-
-      if (entry.changes) {
-        for (const change of entry.changes) {
-
-          if (change.value.messages) {
-
-            const message = change.value.messages[0];
-            const senderId = message.from.id;
-
-            if (message.text && message.text.body) {
-              await handleUserMessage(senderId, message.text.body, "facebook");
-            }
-
-          }
-
-        }
-      }
-
-    }
-
-    return res.sendStatus(200);
-  }
-
-  /* WhatsApp GreenAPI */
-
-  if (body.typeWebhook !== "incomingMessageReceived") {
-    return res.sendStatus(200);
-  }
-
-  const chatId = body.senderData?.chatId;
-
-  if (!chatId || chatId.endsWith("@g.us")) {
-    return res.sendStatus(200);
-  }
-
-  let userMessage =
-    body.messageData?.textMessageData?.textMessage ||
-    body.messageData?.extendedTextMessageData?.text;
-
-  if (!userMessage) {
-    return res.sendStatus(200);
-  }
-
-  await handleUserMessage(chatId, userMessage, "wa");
-
-  res.sendStatus(200);
-
+    res.sendStatus(200);
 });
+    if (!SESSIONS[chatId]) SESSIONS[chatId] = { history: [], lastKitchenMsg: null };
+    const session = SESSIONS[chatId];
 
-async function sendFB(psid, message) {
+    let userMessage = body.messageData?.textMessageData?.textMessage || body.messageData?.extendedTextMessageData?.text;
+    if (!userMessage) return;
+// --- الجزء المصلح: منطق التأكيد والإرسال للجروب ---
+  if (/^(تم|تمام|ايوا|ok|أكد|تاكيد)$/i.test(userMessage.trim()) && session.lastKitchenMsg) {
+      await sendWA(SETTINGS.KITCHEN_GROUP, session.lastKitchenMsg); // إرسال لجروب المطبخ
+      await sendWA(chatId, "أبشر يا غالي، طلبك اعتمدناه وصار بالمطبخ! نورت مطعم صابر 🙏");
+      session.lastKitchenMsg = null; 
+      return; 
+  } 
 
-  const PAGE_TOKEN = process.env.PAGE_TOKEN;
+  try {
+      // كود الـ axios بكمل هون طبيعي...
+        const aiResponse = await axios.post("https://api.openai.com/v1/chat/completions", {
+            model: "gpt-4o", 
+            messages: [
+                { role: "system", content: getSystemPrompt() },
+                ...session.history.slice(-18), // 🚨 ذاكرة 18 رسالة كما طلبت
+                { role: "user", content: userMessage }
+            ],
+            temperature: 0
+        }, { headers: { Authorization: `Bearer ${SETTINGS.OPENAI_KEY}` }, timeout: 30000 });
 
-  await axios.post(
-    `https://graph.facebook.com/v19.0/me/messages?access_token=${PAGE_TOKEN}`,
-    {
-      recipient: { id: psid },
-      message: { text: message }
-    }
-  );
+        let reply = aiResponse.data.choices[0].message.content;
 
+    if (reply.includes("[KITCHEN_GO]")) {
+            const parts = reply.split("[KITCHEN_GO]");
+            session.lastKitchenMsg = parts[1].trim();
+            const finalReply = parts[0].trim() + "\n\nأكتب 'تم' للتأكيد ✅";
+
+            // هاد السطر بقرر يبعث فيسبوك أو واتساب حسب نوع المنصة
+            platform === "facebook" ? await sendFB(chatId, finalReply) : await sendWA(chatId, finalReply);
+        } else {
+            let finalReply = reply;
+            if (session.lastKitchenMsg) {
+                finalReply += "\n\n⚠️ حبيبنا، بس نعتمد الطلب اللي فوق؟ أكتب 'تم' عشان نبلش نجهزلك اياه فوراً.";
+            }
+            platform === "facebook" ? await sendFB(chatId, finalReply) : await sendWA(chatId, finalReply);
+        }
+        });
+    } catch (err) {
+        console.log("Error FB:", err.message);
+    }
 }
-async function sendWA(chatId, message) {
-    try {
-        // التأكد من استخدام sendMessage endpoint
-        await axios.post(`${SETTINGS.API_URL}/sendMessage/${SETTINGS.GREEN_TOKEN}`, {
-            chatId: chatId,
-            message: message
-        });
-        console.log(`Message sent to ${chatId}`);
-    } catch (err) {
-        console.error("Error sending WA message:", err.response ? err.response.data : err.message);
-    }
-}}
+
+const errMsg = "أبشر يا غالي، بس ارجع ابعث رسالتك كمان مرة، كان في ضغط عالخط 🙏";
+        platform === "facebook" ? await sendFB(chatId, errMsg) : await sendWA(chatId, errMsg);
+try {
+ async function sendFB(psid, message) {
+    try {
+        await axios.post(`https://graph.facebook.com/v21.0/me/messages?access_token=${SETTINGS.PAGE_TOKEN}`, {
+            recipient: { id: psid },
+            message: { text: message }
+        });
+    } catch (err) {
+        console.log("Error FB:", err.response?.data || err.message);
+    }
+}
   
 
 app.listen(3000, () => console.log("Saber Smart Engine is Live & Stable!"));
-ما عم برسل للجروب المطبخ 
+
+ما عم  برد على المسنجر و الانستجرام 
