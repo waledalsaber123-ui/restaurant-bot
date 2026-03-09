@@ -51,7 +51,8 @@ async function handleUserMessage(chatId, userMessage, platform="wa") {
     try {
 
         const aiResponse = await axios.post("https://api.openai.com/v1/chat/completions", {
-            model: "gpt-4o",
+            model: "gpt-4o-mini",
+          max_tokens: 150
             messages: [
                 { role: "system", content: getSystemPrompt() },
                 ...session.history.slice(-8),
