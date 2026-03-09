@@ -61,7 +61,21 @@ if (/^(تم|تمام|ايوا|ok|أكد|تاكيد|اوكي|خلص|تمامم)$/
         }, { headers: { Authorization: `Bearer ${SETTINGS.OPENAI_KEY}` }});
 
         let reply = aiResponse.data.choices[0].message.content;
+// إذا ظهر ملخص الطلب ولم يظهر KITCHEN_GO
+if (reply.includes("ملخص الطلب") && !session.lastKitchenMsg) {
 
+  session.lastKitchenMsg = reply;
+
+  const confirmMsg = reply + "\n\nاكتب تم للتأكيد لإرسال الطلب للمطبخ ✅";
+
+  if (platform === "facebook") {
+    await sendFB(chatId, confirmMsg);
+  } else {
+    await sendWA(chatId, confirmMsg);
+  }
+
+  return;
+}
 if (reply.includes("[KITCHEN_GO]")) {
 
   const parts = reply.split("[KITCHEN_GO]").filter(Boolean);
