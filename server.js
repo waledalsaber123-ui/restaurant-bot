@@ -65,8 +65,8 @@ async function handleUserMessage(chatId, userMessage, platform="wa") {
 
         if (reply.includes("[KITCHEN_GO]")) {
 
-            const parts = reply.split("[KITCHEN_GO]");
-            session.lastKitchenMsg = parts[1].trim();
+const parts = reply.split("[KITCHEN_GO]").filter(Boolean);
+          session.lastKitchenMsg = parts[1].trim();
 
             if(platform === "facebook"){
                 await sendFB(chatId, parts[0].trim() + "\n\nاكتب تم للتأكيد ✅");
@@ -163,6 +163,7 @@ const getSystemPrompt = () => {
 6.إجباري: لا ترسل [KITCHEN_GO]  إلا إذا كتب الزبون رقم هاتفه بالأرقام. يمنع قبول كلمة 'نفس الرقم' أو 'عندكم'؛ يجب أن يكتب الرقمو يجب ان يكون رقم الهاتف من بلزبط  10 خانات و يبداء ب  07 (مثلاً 07xxxxxxxx) ليظهر في ملخص الطلب.
 7.في حال الاستلام من الفرع: (الاسم، رقم الهاتف، الموعد، والطلب)و خد تاكيد صريح من العميل و قم بارسالها الى
 [KITCHEN_GO]  . (مهم: لا تطلب عنوان للاستلام).
+إذا قال الزبون "حالا" أو "بعد ساعة" أو "بعد نص ساعة" اعتبرها موعد صالح للطلب.
 بمجرد توفر هذه المعلومات، اعرض ملخص الطلب فوراً متبوعاً بكود [KITCHEN_GO].
 [KITCHEN_GO]
 7. طلبات الاستلام و التوصيل الاسم و رقم الهاتف اجباري 
@@ -207,9 +208,10 @@ app.post("/webhook", async (req, res) => {
  
 
 const errMsg = "أبشر يا غالي، بس ارجع ابعث رسالتك كمان مرة، كان في ضغط عالخط 🙏";
-        platform === "facebook" ? await sendFB(chatId, errMsg) : await sendWA(chatId, errMsg);
+
 try {
- async function sendFB(psid, message) {
+
+  async function sendFB(psid, message) {
     try {
         await axios.post(`https://graph.facebook.com/v21.0/me/messages?access_token=${SETTINGS.PAGE_TOKEN}`, {
             recipient: { id: psid },
