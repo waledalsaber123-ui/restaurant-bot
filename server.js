@@ -227,29 +227,42 @@ app.post("/webhook", async (req, res) => {
 
         let reply = aiResponse.data.choices[0].message.content;
 
-    if (reply.includes("[KITCHEN_GO]")) {
-            const parts = reply.split("[KITCHEN_GO]");
-            session.lastKitchenMsg = parts[1].trim();
-            const finalReply = parts[0].trim() + "\n\nأكتب 'تم' للتأكيد ✅";
+   // --- هون بنعالج رد الذكاء الاصطناعي ---
+        if (reply.includes("[KITCHEN_GO]")) {
+            const parts = reply.split("[KITCHEN_GO]");
+            
+            // تخزين ملخص الطلب (سواء استلام أو توصيل) بانتظار كلمة "تم"
+            session.lastKitchenMsg = parts[1].trim(); 
 
-            // هاد السطر بقرر يبعث فيسبوك أو واتساب حسب نوع المنصة
-            platform === "facebook" ? await sendFB(chatId, finalReply) : await sendWA(chatId, finalReply);
-        } else {
-            let finalReply = reply;
-            if (session.lastKitchenMsg) {
-                finalReply += "\n\n⚠️ حبيبنا، بس نعتمد الطلب اللي فوق؟ أكتب 'تم' عشان نبلش نجهزلك اياه فوراً.";
-            }
-            platform === "facebook" ? await sendFB(chatId, finalReply) : await sendWA(chatId, finalReply);
-        }
-        });
-    } catch (err) {
-        console.log("Error FB:", err.message);
-    }
+            const finalReply = parts[0].trim() + "\n\nاكتب تم للتأكيد ✅";
+            platform === "facebook" ? await sendFB(chatId, finalReply) : await sendWA(chatId, finalReply);
+        } else {
+            // رد عادي إذا لسا البيانات مش كاملة
+            platform === "facebook" ? await sendFB(chatId, reply) : await sendWA(chatId, reply);
+        }
+
+        // حفظ المحادثة في الذاكرة
+        session.history.push({ role: "user", content: userMessage }, { role: "assistant", content: reply });
+
+    } catch (err) {
+        console.log("Error:", err.message);
+        const errMsg = "أبشر يا غالي، بس ارجع ابعث رسالتك كمان مرة، كان في ضغط عالخط 🙏";
+        platform === "facebook" ? await sendFB(chatId, errMsg) : await sendWA(chatId, errMsg);
+    }
+} // نهاية دالة handleUserMessage
+} // نهاية دالة handleUserMessage
+
+// دالة إرسال الفيسبوك
+async function sendFB(psid, message) {
+    try {
+        await axios.post(`https://graph.facebook.com/v21.0/me/messages?access_token=${SETTINGS.PAGE_TOKEN}`, {
+            recipient: { id: psid },
+            message: { text: message }
+        });
+    } catch (err) {
+        console.log("Error FB:", err.response?.data || err.message);
+    }
 }
-
-const errMsg = "أبشر يا غالي، بس ارجع ابعث رسالتك كمان مرة، كان في ضغط عالخط 🙏";
-        platform === "facebook" ? await sendFB(chatId, errMsg) : await sendWA(chatId, errMsg);
-try {
  async function sendFB(psid, message) {
     try {
         await axios.post(`https://graph.facebook.com/v21.0/me/messages?access_token=${SETTINGS.PAGE_TOKEN}`, {
