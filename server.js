@@ -248,15 +248,17 @@ app.post("/webhook", async (req, res) => {
 
 });
 
-  const PAGE_TOKEN = process.env.PAGE_TOKEN;
+async function sendFB(psid, message) {
 
-  await axios.post(
-    `https://graph.facebook.com/v19.0/me/messages?access_token=${PAGE_TOKEN}`,
-    {
-      recipient: { id: psid },
-      message: { text: message }
-    }
-  );
+  const PAGE_TOKEN = process.env.PAGE_TOKEN;
+
+  await axios.post(
+    `https://graph.facebook.com/v19.0/me/messages?access_token=${PAGE_TOKEN}`,
+    {
+      recipient: { id: psid },
+      message: { text: message }
+    }
+  );
 
 }
 async function sendWA(chatId, message) {
