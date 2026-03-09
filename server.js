@@ -35,20 +35,19 @@ async function handleUserMessage(chatId, userMessage, platform="wa") {
     if (!SESSIONS[chatId]) SESSIONS[chatId] = { history: [], lastKitchenMsg: null };
     const session = SESSIONS[chatId];
 
-    if (/^(تم|تمام|ايوا|ok|أكد|تاكيد)$/i.test(userMessage.trim()) && session.lastKitchenMsg) {
+if (/^(تم|تمام|ايوا|ok|أكد|تاكيد|اوكي|خلص|تمامم)$/i.test(userMessage.trim()) && session.lastKitchenMsg) {
 
-        await sendWA(SETTINGS.KITCHEN_GROUP, session.lastKitchenMsg);
+    await sendWA(SETTINGS.KITCHEN_GROUP, session.lastKitchenMsg);
 
-        if(platform === "facebook"){
-            await sendFB(chatId,"أبشر يا غالي، طلبك وصل للمطبخ 🙏");
-        }else{
-            await sendWA(chatId,"أبشر يا غالي، طلبك وصل للمطبخ 🙏");
-        }
+    if (platform === "facebook") {
+        await sendFB(chatId, "أبشر يا غالي، طلبك وصل للمطبخ 🙏");
+    } else {
+        await sendWA(chatId, "أبشر يا غالي، طلبك وصل للمطبخ 🙏");
+    }
 
-        session.lastKitchenMsg = null;
-        return;
-    }
-
+    session.lastKitchenMsg = null;
+    return;
+}
     try {
 
         const aiResponse = await axios.post("https://api.openai.com/v1/chat/completions", {
@@ -84,8 +83,6 @@ if (reply.includes("[KITCHEN_GO]")) {
 
   session.lastKitchenMsg = null;
 }
-const parts = reply.split("[KITCHEN_GO]").filter(Boolean);
-          session.lastKitchenMsg = parts[1].trim();
 
             if(platform === "facebook"){
                 await sendFB(chatId, parts[0].trim() + "\n\nاكتب تم للتأكيد ✅");
@@ -229,8 +226,6 @@ app.post("/webhook", async (req, res) => {
  
 
 const errMsg = "أبشر يا غالي، بس ارجع ابعث رسالتك كمان مرة، كان في ضغط عالخط 🙏";
-
-try {
 
   async function sendFB(psid, message) {
     try {
