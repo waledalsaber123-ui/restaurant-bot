@@ -107,80 +107,124 @@ const getSystemPrompt = () => {
 `;
 };
 
-/* ================= المحرك الرئيسي المصلح ================= */
+/* ================= المحرك الرئيسي ================= */
 app.post("/webhook", async (req, res) => {
-  res.status(200).send("OK");
-  console.log(JSON.stringify(req.body, null, 2));
-  const body = req.body;
 
-  if (body.typeWebhook !== "incomingMessageReceived") return;
-console.log("MESSAGE FROM USER:", userMessage);
-  const chatId = body.senderData?.chatId;
-  const author = body.senderData?.sender; // الشخص اللي بعث الرسالة
+  res.status(200).send("OK");
 
-// 1. التعديل الجديد: الرد فقط على الزبائن (الأفراد) وتجاهل أي إشي ثاني
-if (!chatId || chatId.includes("@g.us")) return;
-  // 2. استخراج نص الرسالة بشكل أضمن
- let userMessage =
-body.messageData?.textMessageData?.textMessage ||
-body.messageData?.extendedTextMessageData?.text ||
-body.messageData?.conversation || "";
+  const body = req.body;
+  console.log("Webhook:", JSON.stringify(body, null, 2));
 
-console.log("MESSAGE FROM USER:", userMessage);
-  if (!userMessage) return;
+  if (body.typeWebhook !== "incomingMessageReceived") return;
 
-  console.log(`وصلت رسالة من زبون (${chatId}): ${userMessage}`);
+  const chatId = body.senderData?.chatId;
+  const author = body.senderData?.sender;
 
-  try {
-    // نداء OpenAI
-    const aiResponse = await axios.post("https://api.openai.com/v1/chat/completions", {
-      model: "gpt-4o",
-      messages: [
-        { role: "system", content: getSystemPrompt() },
-        ...(SESSIONS[chatId]?.history?.slice(-12) || []),
-        { role: "user", content: userMessage }
-      ],
-      temperature: 0
-    }, { headers: { Authorization: `Bearer ${SETTINGS.OPENAI_KEY}` } });
+  // تجاهل الجروبات
+  if (!chatId || chatId.includes("@g.us")) return;
 
-    let reply = aiResponse.data.choices[0].message.content;
+  // استخراج نص الرسالة
+  let userMessage =
+    body.messageData?.textMessageData?.textMessage ||
+    body.messageData?.extendedTextMessageData?.text ||
+    body.messageData?.conversation ||
+    "";
 
-    // تهيئة الجلسة إذا مش موجودة
-    if (!SESSIONS[chatId]) SESSIONS[chatId] = { history: [] };
+  console.log("MESSAGE FROM USER:", userMessage);
 
-    // فحص كود المطبخ
-    if (reply.includes("[KITCHEN_GO]")) {
-      const parts = reply.split("[KITCHEN_GO]");
-      const clientMsg = parts[0].trim();
-      const kitchenMsg = parts[1].trim();
+  if (!userMessage) return;
 
-      // إرسال للمطبخ (جروب)
-      await sendWA(SETTINGS.KITCHEN_GROUP, `🔥 طلب للمطبخ:\n${kitchenMsg}`);
-      
-      // إرسال للزبون (واتساب)
-      await sendWA(chatId, clientMsg || "أبشر يا غالي، طلبك صار بالمطبخ!");
-    } else {
-      // رد طبيعي للزبون
-      await sendWA(chatId, reply);
-    }
+  try {
 
-    // حفظ الذاكرة
-    SESSIONS[chatId].history.push(
-      { role: "user", content: userMessage },
-      { role: "assistant", content: reply }
-    );
+    // طلب من OpenAI
+    const aiResponse = await axios.post(
+      "https://api.openai.com/v1/chat/completions",
+      {
+        model: "gpt-4o",
+        messages: [
+          { role: "system", content: getSystemPrompt() },
+          ...(SESSIONS[chatId]?.history?.slice(-12) || []),
+          { role: "user", content: userMessage }
+        ],
+        temperature: 0
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${SETTINGS.OPENAI_KEY}`,
+          "Content-Type": "application/json"
+        }
+      }
+    );
 
-  } catch (err) {
-    console.error("خطأ في OpenAI أو الإرسال:", err.message);
-  }
+    let reply = aiResponse.data.choices[0].message.content;
+
+    // إنشاء جلسة إذا لم تكن موجودة
+    if (!SESSIONS[chatId]) {
+      SESSIONS[chatId] = { history: [] };
+    }
+
+    // فحص كود المطبخ
+    if (reply.includes("[KITCHEN_GO]")) {
+
+      const parts = reply.split("[KITCHEN_GO]");
+      const clientMsg = parts[0].trim();
+      const kitchenMsg = parts[1].trim();
+
+      // إرسال للمطبخ
+      await sendWA(SETTINGS.KITCHEN_GROUP, `🔥 طلب جديد:\n${kitchenMsg}`);
+
+      // إرسال للزبون
+      await sendWA(chatId, clientMsg || "أبشر يا غالي، طلبك وصل للمطبخ 👨‍🍳");
+
+    } else {
+
+      // رد عادي
+      await sendWA(chatId, reply);
+
+    }
+
+    // حفظ الذاكرة
+    SESSIONS[chatId].history.push(
+      { role: "user", content: userMessage },
+      { role: "assistant", content: reply }
+    );
+
+  } catch (err) {
+
+    console.error("خطأ:", err.response?.data || err.message);
+
+  }
+
 });
+
+
+/* ================= ارسال واتساب ================= */
+
 async function sendWA(chatId, message) {
-  try {
-    await axios.post(`${SETTINGS.API_URL}/sendMessage/${SETTINGS.GREEN_TOKEN}`, { chatId, message });
-  } catch (err) {}
+
+  try {
+
+    await axios.post(
+      `${SETTINGS.API_URL}/sendMessage/${SETTINGS.GREEN_TOKEN}`,
+      {
+        chatId: chatId,
+        message: message
+      }
+    );
+
+  } catch (err) {
+
+    console.error("WhatsApp Send Error:", err.message);
+
+  }
+
 }
 
-app.listen(3000, () => console.log("Saber Bot is Running!"));
 
+/* ================= تشغيل السيرفر ================= */
 
-هاد الكود هل امن للبوت الواتس اب ما ينحظر 
+app.listen(3000, () => {
+
+  console.log("🚀 Saber Bot is Running on port 3000");
+
+});
