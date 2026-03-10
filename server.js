@@ -110,66 +110,71 @@ const getSystemPrompt = () => {
 
 /* ================= المحرك الرئيسي المصلح ================= */
 app.post("/webhook", async (req, res) => {
-  res.sendStatus(200);
+  res.status(200).send("OK");
   const body = req.body;
+
   if (body.typeWebhook !== "incomingMessageReceived") return;
 
   const chatId = body.senderData?.chatId;
-  if (!chatId || chatId.endsWith("@g.us")) return;
+  const author = body.senderData?.sender; // الشخص اللي بعث الرسالة
 
-  if (!SESSIONS[chatId]) SESSIONS[chatId] = { history: [] };
-  const session = SESSIONS[chatId];
+  // 1. أهم شرط: لا ترد على الرسائل اللي طالعة من البوت نفسه أو من داخل الجروبات
+  if (!chatId || chatId.includes("@g.us") || author.includes("@g.us")) {
+    console.log("رسالة من جروب أو من البوت - تم التجاهل");
+    return;
+  }
 
-  let userMessage = body.messageData?.textMessageData?.textMessage || body.messageData?.extendedTextMessageData?.text;
+  // 2. استخراج نص الرسالة بشكل أضمن
+  let userMessage = body.messageData?.textMessageData?.textMessage || 
+                    body.messageData?.extendedTextMessageData?.text || "";
+
   if (!userMessage) return;
 
+  console.log(`وصلت رسالة من زبون (${chatId}): ${userMessage}`);
+
   try {
+    // نداء OpenAI
     const aiResponse = await axios.post("https://api.openai.com/v1/chat/completions", {
       model: "gpt-4o",
       messages: [
-        { role: "system", content: getSystemPrompt() + "\n⚠️ ملاحظة هامة: إذا الزبون غير رأيه من استلام لتوصيل، احسب السعر الجديد فوراً وأرسل [KITCHEN_GO] مع البيانات المحدثة." },
-        ...session.history.slice(-30), // حفظ الذاكرة اللي طلبتها
+        { role: "system", content: getSystemPrompt() },
+        ...(SESSIONS[chatId]?.history?.slice(-15) || []),
         { role: "user", content: userMessage }
       ],
       temperature: 0
     }, { headers: { Authorization: `Bearer ${SETTINGS.OPENAI_KEY}` } });
-let reply = aiResponse.data.choices[0].message.content;
 
-    // 1. معالجة الرسالة إذا كان فيها كود المطبخ [KITCHEN_GO]
+    let reply = aiResponse.data.choices[0].message.content;
+
+    // تهيئة الجلسة إذا مش موجودة
+    if (!SESSIONS[chatId]) SESSIONS[chatId] = { history: [] };
+
+    // فحص كود المطبخ
     if (reply.includes("[KITCHEN_GO]")) {
       const parts = reply.split("[KITCHEN_GO]");
-      const clientMsg = parts[0].trim(); // الرسالة الموجهة للزبون
-      const kitchenMsg = parts[1].trim(); // الرسالة الموجهة للمطبخ
+      const clientMsg = parts[0].trim();
+      const kitchenMsg = parts[1].trim();
 
-      // التأكد من وجود رقم هاتف قبل الإرسال للمطبخ
-      const hasPhone = /07[789]\d{7}/.test(kitchenMsg);
-
-      if (hasPhone) {
-        // أرسل للمطبخ
-        await sendWA(SETTINGS.KITCHEN_GROUP, `🔥 طلب جديد للمطبخ:\n${kitchenMsg}`);
-        // أرسل للزبون التأكيد
-        await sendWA(chatId, clientMsg || "أبشر يا غالي، طلبك صار بالمطبخ!");
-      } else {
-        // إذا الكود طلع بس لسه ما كمل البيانات، أرسل الرد العادي للزبون
-        await sendWA(chatId, reply.replace("[KITCHEN_GO]", "")); 
-      }
+      // إرسال للمطبخ (جروب)
+      await sendWA(SETTINGS.KITCHEN_GROUP, `🔥 طلب للمطبخ:\n${kitchenMsg}`);
+      
+      // إرسال للزبون (واتساب)
+      await sendWA(chatId, clientMsg || "أبشر يا غالي، طلبك صار بالمطبخ!");
     } else {
-      // 2. إذا كان رد طبيعي (استفسار أو لسه بختار)، أرسل الرد للزبون
+      // رد طبيعي للزبون
       await sendWA(chatId, reply);
     }
 
-    // 3. حفظ المحادثة في الذاكرة (عشان ما ينسى الزبون)
-    session.history.push({ role: "user", content: userMessage }, { role: "assistant", content: reply });
+    // حفظ الذاكرة
+    SESSIONS[chatId].history.push(
+      { role: "user", content: userMessage },
+      { role: "assistant", content: reply }
+    );
 
-    // نصيحة: حدد الذاكرة بـ 15 رسالة عشان التكلفة ما تزيد عليك
-    if (session.history.length > 15) {
-      session.history = session.history.slice(-15);
-    }
   } catch (err) {
-    console.error("Error:", err.message);
+    console.error("خطأ في OpenAI أو الإرسال:", err.message);
   }
 });
-
 async function sendWA(chatId, message) {
   try {
     await axios.post(`${SETTINGS.API_URL}/sendMessage/${SETTINGS.GREEN_TOKEN}`, { chatId, message });
