@@ -15,6 +15,15 @@ API_URL: `https://api.green-api.com/waInstance${process.env.ID_INSTANCE}`
 };
 
 const SESSIONS = {};
+/* ================= دالة التأخير الذكي (للحماية من الحظر) ================= */
+const delay = (ms) => new Promise(res => setTimeout(res, ms));
+
+const waitTyping = async (text) => {
+    // حساب وقت كتابة منطقي بناءً على طول النص + وقت تفكير عشوائي
+    const typingTime = (text.length * 50) + (Math.random() * 1000 + 1000);
+    const finalWait = Math.min(typingTime, 6000); // حد أقصى 6 ثواني
+    await delay(finalWait);
+};
 
 /* ================= التحقق من Webhook (Facebook) ================= */
 app.get("/webhook", (req, res) => {
@@ -64,7 +73,7 @@ async function sendFB(psid, message) {
 
 /* ================= helper للإرسال حسب المنصة ================= */
 async function sendMsg(platform, chatId, message) {
- await delay(10000);
+ await waitTyping(message);
     platform === "facebook"
         ? await sendFB(chatId, message)
         : await sendWA(chatId, message);
@@ -275,6 +284,7 @@ const getSystemPrompt = () => `
 4. بمجرد عرض الملخص، أخبر الزبون أن يكتب "تم" لتثبيت الطلب وإرساله للمطبخ.
 5. ممنوع كتابة أي كلام أو رموز بعد سطر "المجموع النهائي".
 6. إذا أرسل الزبون صورة أو فويس، اعتذر منه بلباقة وأخبره أنك تستقبل الطلبات الكتابية فقط حالياً لضمان دقة الطلب.
+"7. إذا سألك الزبون عن منطقة أو دوار غير موجود صراحة في القائمة، اطلب منه يحدد أقرب منطقة معروفة له ولا تخمن السعر أو التبعية الإدارية من عندك."
 `;
 
 /* ================= تشغيل السيرفر ================= */
