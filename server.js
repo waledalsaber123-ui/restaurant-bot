@@ -4,122 +4,260 @@ import axios from "axios";
 const app = express();
 app.use(express.json());
 
+/* ================== الإعدادات ================== */
+
 const SETTINGS = {
   OPENAI_KEY: process.env.OPENAI_KEY,
   GREEN_TOKEN: process.env.GREEN_TOKEN,
   ID_INSTANCE: process.env.ID_INSTANCE,
-  KITCHEN_GROUP: "120363407952234395@g.us", 
-  API_URL: `https://7103.api.greenapi.com/waInstance${process.env.ID_INSTANCE}`
+  KITCHEN_GROUP: "120363407952234395@g.us",
+  API_URL: `https://7103.api.greenapi.com/waInstance${process.env.ID_INSTANCE}`,
+  SYSTEM_PROMPT: process.env.SYSTEM_PROMPT
 };
 
 const SESSIONS = {};
 
-/* ================= المساعدة في استخراج البيانات ================= */
+/* ================= استخراج بيانات ================= */
+
 const extractPhone = (text) => {
-    const match = text.match(/(07[789][0-9]{7})/);
-    return match ? match[0] : null;
+  const match = text.match(/(07[789][0-9]{7})/);
+  return match ? match[0] : null;
 };
 
-/* ================= المحرك الرئيسي ================= */
-app.post("/webhook", async (req, res) => {
-    res.sendStatus(200);
-    const body = req.body;
-    
-    // التأكد من أنها رسالة واردة (واتساب أو مسنجر)
-    if (body.typeWebhook !== "incomingMessageReceived") return;
+const extractAddress = (text) => {
+  if (
+    text.includes("شارع") ||
+    text.includes("حي") ||
+    text.includes("منطقة") ||
+    text.includes("جنب") ||
+    text.includes("قرب")
+  ) {
+    return text;
+  }
+  return null;
+};
 
-    const chatId = body.senderData?.chatId;
-    // التحقق: إذا كانت رسالة من جروب، تجاهلها (إلا لو كان جروب المطبخ)
-    if (!chatId || (chatId.endsWith("@g.us") && chatId !== SETTINGS.KITCHEN_GROUP)) return;
+/* ================= تحقق من اكتمال الطلب ================= */
 
-    // 1. تهيئة الجلسة لمرة واحدة فقط
-    if (!SESSIONS[chatId]) {
-        SESSIONS[chatId] = { 
-            history: [], 
-            pendingOrder: { items: [], total: 0, type: "delivery" },
-            awaitingConfirmation: false 
-        };
-    }
-    const session = SESSIONS[chatId];
+function validateOrder(order) {
 
-    let userMessage = body.messageData?.textMessageData?.textMessage || 
-                      body.messageData?.extendedTextMessageData?.text || "";
+  if (!order.name) return "الاسم";
+  if (!order.phone) return "رقم الهاتف";
 
-    if (!userMessage) return;
+  if (order.type === "delivery" && !order.address)
+    return "العنوان";
 
-    // 2. تحديث البيانات بشكل تلقائي
-    const detectedPhone = extractPhone(userMessage);
-    if (detectedPhone) session.pendingOrder.phone = detectedPhone;
+  if (!order.itemsString) return "الطلب";
+  if (!order.total || order.total == 0) return "المجموع";
 
-    // 3. التعامل مع خيار الاستلام
-    if (userMessage.includes("استلام") || userMessage.includes("بالمحل")) {
-        session.pendingOrder.type = "pickup";
-        session.pendingOrder.deliveryFee = 0;
-    }
-
-    try {
-        // 4. التحقق من التأكيد النهائي
-        const isConfirmation = /^(تم|ok|اوكي|confirm|yes|اكيد|ايوا|تمام|okay|yep|yeah)$/i.test(userMessage.trim());
-        
-        if (session.awaitingConfirmation && isConfirmation) {
-            const order = session.pendingOrder;
-            const kitchenMessage = `[KITCHEN_GO]\n🔥 *طلب جديد مؤكد*\n- *الاسم*: ${order.name || "زبون"}\n- *الرقم*: ${order.phone || "غير محدد"}\n- *النوع*: ${order.type === "pickup" ? "استلام 🚶" : "توصيل 🚚"}\n- *الطلب*: ${order.itemsString}\n- *المجموع*: ${order.total} د.أ`;
-            
-            await sendWA(SETTINGS.KITCHEN_GROUP, kitchenMessage);
-            await sendWA(chatId, `تم بحمد الله يا غالي! ✅\nطلبك صار عند المطبخ وبيجهز خلال 30-45 دقيقة.`);
-            
-            delete SESSIONS[chatId]; // تصفير الجلسة بعد النجاح
-            return;
-        }
-
-        // 5. إرسال لـ OpenAI
-        const aiResponse = await axios.post(
-            "https://api.openai.com/v1/chat/completions",
-            {
-                model: "gpt-4o-mini",
-                messages: [
-                    { role: "system", content: getSystemPrompt() },
-                    ...session.history.slice(-6),
-                    { role: "user", content: userMessage }
-                ],
-                temperature: 0.2
-            },
-            { headers: { "Authorization": `Bearer ${SETTINGS.OPENAI_KEY}` }, timeout: 30000 }
-        );
-
-        let reply = aiResponse.data.choices[0].message.content;
-
-        if (reply.includes("[KITCHEN_GO]")) {
-            // استخراج البيانات وتخزينها في السيشين
-            session.awaitingConfirmation = true;
-            const parts = reply.split("[KITCHEN_GO]");
-            const kitchenInfo = parts[1];
-
-            session.pendingOrder.itemsString = kitchenInfo.match(/الطلب:? ([^\n]+)/)?.[1] || "مشكل";
-            session.pendingOrder.total = kitchenInfo.match(/المجموع الكلي:? ([0-9.]+)/)?.[1] || "0";
-            session.pendingOrder.name = kitchenInfo.match(/الاسم:? ([^\n]+)/)?.[1] || "غالي";
-
-            await sendWA(chatId, `${parts[0].trim()}\n\n*هل البيانات صحيحة؟ أكتب "تم" للتأكيد* ✅`);
-        } else {
-            await sendWA(chatId, reply);
-        }
-
-        // حفظ التاريخ
-        session.history.push({ role: "user", content: userMessage });
-        session.history.push({ role: "assistant", content: reply });
-
-    } catch (err) {
-        console.error("Error:", err.message);
-        await sendWA(chatId, "أبشر يا غالي، ثواني وبكون معك، صار عندي ضغط رسائل.");
-    }
-});
-
-async function sendWA(chatId, message) {
-    try {
-        await axios.post(`${SETTINGS.API_URL}/sendMessage/${SETTINGS.GREEN_TOKEN}`, { chatId, message });
-    } catch (err) {
-        console.error("Send Error:", err.message);
-    }
+  return null;
 }
 
-app.listen(3000, () => console.log("🤖 صابر جاهز على كل المنصات!"));
+/* ================= ارسال رسالة ================= */
+
+async function sendWA(chatId, message) {
+  try {
+    await axios.post(
+      `${SETTINGS.API_URL}/sendMessage/${SETTINGS.GREEN_TOKEN}`,
+      {
+        chatId,
+        message
+      }
+    );
+  } catch (err) {
+    console.log("Send error", err.message);
+  }
+}
+
+/* ================= webhook ================= */
+
+app.post("/webhook", async (req, res) => {
+
+  res.sendStatus(200);
+
+  const body = req.body;
+
+  if (body.typeWebhook !== "incomingMessageReceived") return;
+
+  const chatId =
+    body.senderData?.chatId ||
+    body.senderData?.sender ||
+    body.senderData?.senderId;
+
+  if (!chatId) return;
+
+  if (chatId.endsWith("@g.us") && chatId !== SETTINGS.KITCHEN_GROUP) return;
+
+  let userMessage =
+    body.messageData?.textMessageData?.textMessage ||
+    body.messageData?.extendedTextMessageData?.text ||
+    "";
+
+  if (!userMessage) return;
+
+  /* ================= إنشاء جلسة ================= */
+
+  if (!SESSIONS[chatId]) {
+    SESSIONS[chatId] = {
+      history: [],
+      awaitingConfirmation: false,
+      pendingOrder: {
+        name: null,
+        phone: null,
+        address: null,
+        itemsString: null,
+        total: 0,
+        type: "delivery"
+      }
+    };
+  }
+
+  const session = SESSIONS[chatId];
+
+  /* ================= تحديث البيانات ================= */
+
+  const phone = extractPhone(userMessage);
+  if (phone) session.pendingOrder.phone = phone;
+
+  const address = extractAddress(userMessage);
+  if (address) session.pendingOrder.address = address;
+
+  if (userMessage.includes("استلام") || userMessage.includes("بالمحل")) {
+    session.pendingOrder.type = "pickup";
+  }
+
+  /* ================= تأكيد الطلب ================= */
+
+  const isConfirm =
+    /^(تم|اوكي|ok|yes|confirm|تمام)$/i.test(userMessage.trim());
+
+  if (session.awaitingConfirmation && isConfirm) {
+
+    const missing = validateOrder(session.pendingOrder);
+
+    if (missing) {
+      await sendWA(chatId, `قبل تأكيد الطلب لازم تعطيني: *${missing}* 🙏`);
+      return;
+    }
+
+    const order = session.pendingOrder;
+
+    const kitchenMessage =
+
+`🔥 طلب جديد
+
+الاسم: ${order.name}
+الرقم: ${order.phone}
+النوع: ${order.type === "pickup" ? "استلام" : "توصيل"}
+
+العنوان: ${order.address || "-"}
+
+الطلب:
+${order.itemsString}
+
+المجموع: ${order.total} د.أ
+`;
+
+    await sendWA(SETTINGS.KITCHEN_GROUP, kitchenMessage);
+
+    await sendWA(
+      chatId,
+      `تم تأكيد الطلب ✅
+المطبخ بدأ التحضير
+الوقت المتوقع 30 - 45 دقيقة`
+    );
+
+    delete SESSIONS[chatId];
+
+    return;
+  }
+
+  /* ================= الذكاء الاصطناعي ================= */
+
+  try {
+
+    const ai = await axios.post(
+      "https://api.openai.com/v1/chat/completions",
+      {
+        model: "gpt-4o-mini",
+        temperature: 0.2,
+        messages: [
+          { role: "system", content: SETTINGS.SYSTEM_PROMPT },
+          ...session.history.slice(-6),
+          { role: "user", content: userMessage }
+        ]
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${SETTINGS.OPENAI_KEY}`
+        }
+      }
+    );
+
+    let reply = ai.data.choices[0].message.content;
+
+    /* ================= استخراج الطلب ================= */
+
+    if (reply.includes("[KITCHEN_GO]")) {
+
+      session.awaitingConfirmation = true;
+
+      const kitchenInfo = reply.split("[KITCHEN_GO]")[1];
+
+      session.pendingOrder.itemsString =
+        kitchenInfo.match(/الطلب:? ([^\n]+)/)?.[1] ||
+        session.pendingOrder.itemsString;
+
+      session.pendingOrder.total =
+        kitchenInfo.match(/المجموع:? ([0-9.]+)/)?.[1] ||
+        session.pendingOrder.total;
+
+      session.pendingOrder.name =
+        kitchenInfo.match(/الاسم:? ([^\n]+)/)?.[1] ||
+        session.pendingOrder.name;
+
+      session.pendingOrder.address =
+        kitchenInfo.match(/العنوان:? ([^\n]+)/)?.[1] ||
+        session.pendingOrder.address;
+
+      await sendWA(
+        chatId,
+        `${reply.split("[KITCHEN_GO]")[0]}
+
+هل الطلب صحيح؟
+
+اكتب *تم* للتأكيد ✅`
+      );
+
+    } else {
+
+      await sendWA(chatId, reply);
+
+    }
+
+    session.history.push({
+      role: "user",
+      content: userMessage
+    });
+
+    session.history.push({
+      role: "assistant",
+      content: reply
+    });
+
+  } catch (err) {
+
+    console.log(err.message);
+
+    await sendWA(
+      chatId,
+      "صار ضغط رسائل بسيط 🙏 جرب بعد ثواني"
+    );
+  }
+});
+
+/* ================= تشغيل السيرفر ================= */
+
+app.listen(3000, () => {
+  console.log("🤖 البوت جاهز للعمل");
+});
