@@ -71,62 +71,67 @@ async function sendMsg(platform, chatId, message) {
 
 /* ================= معالجة رسائل المستخدم ================= */
 async function handleUserMessage(chatId, userMessage, platform = "wa") {
-
     if (!SESSIONS[chatId]) SESSIONS[chatId] = { history: [], lastKitchenMsg: null };
     const session = SESSIONS[chatId];
 
-    /* --- تأكيد الطلب وإرساله للمطبخ --- */
+    /* 1. تأكيد الطلب وإرساله للمطبخ */
     if (/^(تم|تمام|ايوا|ok|أكد|تاكيد)$/i.test(userMessage.trim()) && session.lastKitchenMsg) {
         await sendWA(SETTINGS.KITCHEN_GROUP, session.lastKitchenMsg);
         await sendMsg(platform, chatId, "أبشر يا غالي، طلبك وصل للمطبخ وصار يتجهز! نورت مطعم صابر جو 🙏");
         session.lastKitchenMsg = null;
         return;
     }
-/* --- استدعاء الذكاء الاصطناعي --- */
-try {
-    const aiResponse = await axios.post(
-        "https://api.openai.com/v1/chat/completions",
-        {
-            model: "gpt-4o",
-            messages: [
-                { role: "system", content: getSystemPrompt() },
-                ...session.history.slice(-18),
-                { role: "user", content: userMessage }
-            ],
-            temperature: 0
-        },
-        {
-            headers: { Authorization: `Bearer ${SETTINGS.OPENAI_KEY}` },
-            timeout: 30000
+
+    /* 2. استدعاء الذكاء الاصطناعي */
+    try {
+        const aiResponse = await axios.post(
+            "https://api.openai.com/v1/chat/completions",
+            {
+                model: "gpt-4o",
+                messages: [
+                    { role: "system", content: getSystemPrompt() },
+                    ...session.history.slice(-18),
+                    { role: "user", content: userMessage }
+                ],
+                temperature: 0
+            },
+            {
+                headers: { Authorization: `Bearer ${SETTINGS.OPENAI_KEY}` },
+                timeout: 30000
+            }
+        );
+
+        let reply = aiResponse.data.choices[0].message.content;
+
+        /* 3. فحص إذا الرد يحتوي على أمر المطبخ */
+        if (reply.includes("[KITCHEN_GO]")) {
+            const parts = reply.split("[KITCHEN_GO]");
+            const customerReply = parts[0].trim(); 
+            const kitchenOrder = parts[1].trim();  
+
+            // تخزين الملخص كامل
+            session.lastKitchenMsg = kitchenOrder;
+
+            // رد الزبون
+            const finalReply = customerReply + "\n\nاكتب **تم** للتأكيد ✅";
+            await sendMsg(platform, chatId, finalReply);
+        } else {
+            let finalReply = reply;
+            if (session.lastKitchenMsg) {
+                finalReply += "\n\n⚠️ حبيبنا، في طلب معلق بانتظار تأكيدك! اكتب **تم** عشان نبعثه للمطبخ فوراً.";
+            }
+            await sendMsg(platform, chatId, finalReply);
         }
-    );
 
-    let reply = aiResponse.data.choices[0].message.content;
+        /* 4. حفظ المحادثة في التاريخ */
+        session.history.push(
+            { role: "user", content: userMessage },
+            { role: "assistant", content: reply }
+        );
 
-    /* --- التعديل الجذري هون --- */
-    if (reply.includes("[KITCHEN_GO]")) {
-        // بنقسم النص لجزئين
-        const parts = reply.split("[KITCHEN_GO]");
-        
-        const customerReply = parts[0].trim(); // الحكي اللطيف للزبون
-        const kitchenOrder = parts[1].trim();  // الملخص اللي بيبدأ بـ 🔔 طلب جديد
-
-        // حفظ ملخص المطبخ بالكامل في السيشين
-        session.lastKitchenMsg = kitchenOrder;
-
-        // إرسال الرد للزبون مع طلب كلمة "تم"
-        const finalReply = customerReply + "\n\nاكتب **تم** للتأكيد ✅";
-        await sendMsg(platform, chatId, finalReply);
-
-    } else {
-        /* إذا الرد عادي (لسه بنجمع معلومات أو استفسار) */
-        let finalReply = reply;
-        
-        // إذا الزبون سأل سؤال وما أكد الطلب اللي قبله، بنذكره
-        if (session.lastKitchenMsg) {
-            finalReply += "\n\n⚠️ حبيبنا، في طلب معلق بانتظار تأكيدك! اكتب **تم** عشان نبعثه للمطبخ فوراً.";
-        }
-        await sendMsg(platform, chatId, finalReply);
+    } catch (err) {
+        console.log("Error OpenAI:", err.message);
+        await sendMsg(platform, chatId, "أبشر يا غالي، بس ارجع ابعث رسالتك كمان مرة، كان في ضغط عالخط 🙏");
     }
 
     /* حفظ المحادثة */
