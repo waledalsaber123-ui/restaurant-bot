@@ -9,8 +9,8 @@ const SETTINGS = {
   GREEN_TOKEN: process.env.GREEN_TOKEN,
   ID_INSTANCE: process.env.ID_INSTANCE,
   KITCHEN_GROUP: "120363407952234395@g.us", 
-  SYSTEM_PROMPT: process.env.SYSTEM_PROMPT
-  API_URL: `https://7103.api.greenapi.com/waInstance${process.env.ID_INSTANCE}`
+  SYSTEM_PROMPT: process.env.SYSTEM_PROMPT,
+API_URL: `https://7103.api.greenapi.com/waInstance${process.env.ID_INSTANCE}`
 };
 
 const SESSIONS = {};
@@ -89,17 +89,20 @@ app.post("/webhook", async (req, res) => {
         );
 
         let reply = aiResponse.data.choices[0].message.content;
-
-        if (reply.includes("[KITCHEN_GO]")) {
-            // استخراج البيانات وتخزينها في السيشين
+if (reply.includes("[KITCHEN_GO]") || reply.includes("الطلب")) {
             session.awaitingConfirmation = true;
             const parts = reply.split("[KITCHEN_GO]");
             const kitchenInfo = parts[1];
 
-            session.pendingOrder.itemsString = kitchenInfo.match(/الطلب:? ([^\n]+)/)?.[1] || "مشكل";
-            session.pendingOrder.total = kitchenInfo.match(/المجموع الكلي:? ([0-9.]+)/)?.[1] || "0";
-            session.pendingOrder.name = kitchenInfo.match(/الاسم:? ([^\n]+)/)?.[1] || "غالي";
+          session.pendingOrder.itemsString =
+kitchenInfo.match(/الطلب.*?:\s*(.*)/)?.[1] || "غير محدد"
 
+session.pendingOrder.total =
+kitchenInfo.match(/المجموع.*?:\s*([0-9.]+)/)?.[1] || "0"
+
+session.pendingOrder.name =
+kitchenInfo.match(/الاسم.*?:\s*(.*)/)?.[1] || "زبون"
+console.log("SESSION:", session)
             await sendWA(chatId, `${parts[0].trim()}\n\n*هل البيانات صحيحة؟ أكتب "تم" للتأكيد* ✅`);
         } else {
             await sendWA(chatId, reply);
