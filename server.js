@@ -64,7 +64,7 @@ async function sendFB(psid, message) {
 
 /* ================= helper للإرسال حسب المنصة ================= */
 async function sendMsg(platform, chatId, message) {
- await delay(6000);
+ await delay(10000);
     platform === "facebook"
         ? await sendFB(chatId, message)
         : await sendWA(chatId, message);
