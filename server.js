@@ -109,6 +109,7 @@ const getSystemPrompt = () => {
 /* ================= المحرك الرئيسي المصلح ================= */
 app.post("/webhook", async (req, res) => {
   res.status(200).send("OK");
+  console.log(JSON.stringify(req.body, null, 2));
   const body = req.body;
 
   if (body.typeWebhook !== "incomingMessageReceived") return;
@@ -119,9 +120,12 @@ app.post("/webhook", async (req, res) => {
 // 1. التعديل الجديد: الرد فقط على الزبائن (الأفراد) وتجاهل أي إشي ثاني
 if (!chatId || chatId.includes("@g.us")) return;
   // 2. استخراج نص الرسالة بشكل أضمن
-  let userMessage = body.messageData?.textMessageData?.textMessage || 
-                    body.messageData?.extendedTextMessageData?.text || "";
+ let userMessage =
+body.messageData?.textMessageData?.textMessage ||
+body.messageData?.extendedTextMessageData?.text ||
+body.messageData?.conversation || "";
 
+console.log("MESSAGE FROM USER:", userMessage);
   if (!userMessage) return;
 
   console.log(`وصلت رسالة من زبون (${chatId}): ${userMessage}`);
