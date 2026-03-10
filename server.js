@@ -1,6 +1,18 @@
 import express from "express";
 import axios from "axios";
+import fs from "fs";
+const DATA_FILE = "./sessions_db.json";
 
+// دالة لحفظ البيانات بلمح البصر
+function saveData() {
+    fs.writeFileSync(DATA_FILE, JSON.stringify(SESSIONS));
+}
+
+// دالة لتحميل البيانات أول ما يشتغل السيرفر
+if (fs.existsSync(DATA_FILE)) {
+    const rawData = fs.readFileSync(DATA_FILE);
+    Object.assign(SESSIONS, JSON.parse(rawData));
+}
 const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
 const app = express();
@@ -139,12 +151,16 @@ async function handleUserMessage(chatId, userMessage, platform = "wa", senderNam
     }
     const session = SESSIONS[chatId];
 
-    // منطق التأكيد النهائي للمطبخ
-    if (/^(تم|تمام|ايوا|ok|أكد|تاكيد)$/i.test(userMessage.trim()) && session.lastKitchenMsg) {
+    const isConfirmation = /^(تم|تمام|ايوا|ok|أكد|تاكيد|اعتمد|وصل)$/i.test(userMessage.trim());
+    
+    // هاد الجزء صار يقرأ من الذاكرة المحفوظة بالملف
+    if (isConfirmation && session.lastKitchenMsg) {
         await sendWA(SETTINGS.KITCHEN_GROUP, session.lastKitchenMsg);
-        const confirmMsg = `أبشر يا ${senderName}، طلبك اعتمدناه وصار بالمطبخ! نورت مطعم صابر 🙏`;
+        const confirmMsg = `أبشر يا ${senderName}، طلبك اعتمدناه وصار بالمطبخ! نورت صابر جو 🙏`;
         platform === "facebook" ? await sendFB(chatId, confirmMsg) : await sendWA(chatId, confirmMsg);
+        
         session.lastKitchenMsg = null;
+        saveData(); // حفظ التغيير فوراً
         return;
     }
 
@@ -152,8 +168,9 @@ async function handleUserMessage(chatId, userMessage, platform = "wa", senderNam
         const aiResponse = await axios.post("https://api.openai.com/v1/chat/completions", {
             model: "gpt-4o", 
             messages: [
-                { role: "system", content: getSystemPrompt() + `\n العميل الحالي اسمه: ${senderName}.` },
-                ...session.history.slice(-14),
+                { role: "system", content: getSystemPrompt() + `\n العميل اسمه: ${senderName}.` },
+                // تقليل الـ history لآخر 6 رسائل فقط لتوفير التكاليف (Tokens)
+                ...session.history.slice(-6), 
                 { role: "user", content: userMessage }
             ],
             temperature: 0.7 
@@ -161,23 +178,25 @@ async function handleUserMessage(chatId, userMessage, platform = "wa", senderNam
 
         let reply = aiResponse.data.choices[0].message.content;
 
-        if (reply.indexOf("[KITCHEN_GO]") !== -1) {
+        if (reply.includes("[KITCHEN_GO]")) {
             const parts = reply.split("[KITCHEN_GO]");
-            session.lastKitchenMsg = parts[1].trim();
+            session.lastKitchenMsg = parts[1].trim(); 
             const finalReply = parts[0].trim() + "\n\nاكتب 'تم' للتأكيد ✅";
             platform === "facebook" ? await sendFB(chatId, finalReply) : await sendWA(chatId, finalReply);
         } else {
-            let finalReply = reply;
-            if (session.lastKitchenMsg) finalReply += "\n\n⚠️ حبيبنا، بس نعتمد الطلب؟ أكتب 'تم' عشان نبلش نجهزه.";
-            platform === "facebook" ? await sendFB(chatId, finalReply) : await sendWA(chatId, finalReply);
+            platform === "facebook" ? await sendFB(chatId, reply) : await sendWA(chatId, reply);
         }
+
         session.history.push({ role: "user", content: userMessage }, { role: "assistant", content: reply });
+        
+        // تنظيف الذاكرة بشكل دوري وحفظها
+        if (session.history.length > 10) session.history = session.history.slice(-10);
+        saveData(); 
+
     } catch (err) {
-        const errMsg = "أبشر يا غالي، ارجع ابعث رسالتك كمان مرة، في ضغط عالخط 🙏";
-        platform === "facebook" ? await sendFB(chatId, errMsg) : await sendWA(chatId, errMsg);
+        console.error("AI Error:", err.message);
     }
 }
-
 /* ================= 5. Webhooks المصلحة ================= */
 app.get("/webhook", (req, res) => {
     const VERIFY_TOKEN = "SaberJo_Secret_2026";
