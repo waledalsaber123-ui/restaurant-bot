@@ -3,29 +3,21 @@ import axios from "axios";
 import fs from "fs";
 
 const DATA_FILE = "./sessions_db.json";
-// تأكد أن التعريف في الأعلى تماماً ولا يتكرر
 let SESSIONS = {}; 
 
-// تحميل البيانات بأمان
 if (fs.existsSync(DATA_FILE)) {
     try {
         const rawData = fs.readFileSync(DATA_FILE, 'utf8');
         if (rawData) SESSIONS = JSON.parse(rawData);
-    } catch (e) { 
-        console.error("خطأ في تحميل ملف الجلسات:", e.message); 
-        SESSIONS = {};
-    }
+    } catch (e) { SESSIONS = {}; }
 }
 
 function saveData() {
     try {
         fs.writeFileSync(DATA_FILE, JSON.stringify(SESSIONS, null, 2));
-    } catch (e) {
-        console.error("خطأ في حفظ البيانات:", e.message);
-    }
+    } catch (e) { console.error("Save Error:", e.message); }
 }
 
-const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 const app = express();
 app.use(express.json());
 
@@ -38,144 +30,75 @@ const SETTINGS = {
     API_URL: `https://7103.api.greenapi.com/waInstance${process.env.ID_INSTANCE}`
 };
 
-/* ================= نظام البرومبت ================= */
+/* ================= 1. نظام البرومبت الموحد ================= */
 const getSystemPrompt = () => {
-    return `أنت "صابر"، المسؤول عن الطلبات في مطعم (صابر جو سناك) في عمان. شخصيتك نشمية، خدومة، وبتحكي بلهجة أردنية.
-📍 الموقع: عمان - شارع الجامعة الأردنية.
-(يرجى وضع باقي المنيو وقواعد المطبخ هنا كما كانت لديك)
-يجب وضع كود [KITCHEN_GO] قبل ملخص الطلب النهائي دائماً.`;
-    📅 **نظام الحجز (Reservations)**:
-- مسموح للزبون يحجز طاولة أو يطلب تجهيز طلب لموعد معين.
-- المتطلبات الإجبارية للحجز: (الاسم، رقم التلفون، الموعد/الساعة، عدد الأشخاص أو الطلب).
-- عند اكتمال البيانات، أرسل الكود [RESERVATION_GO] متبوعاً بالتفاصيل.
-- الصيغة للمطبخ:
-  [RESERVATION_GO]
-  🗓️ حجز جديد مؤكد!
-  الاسم: [الاسم]
-  الموعد: [الساعة واليوم]
-  التفاصيل: [عدد الأشخاص أو الطلب المسبق]
-`
-أنت "صابر"، المساعد الذكي لمطعم (صابر جو سناك).
-- **قاعدة اللغة الإجبارية**: إذا خاطبك الزبون باللغة العربية، أجب بالعامية الأردنية اللطيفة (يا غالي، أبشر، نورت).
-- **English Support**: If the customer speaks in English, you must respond professionally and fluently in English, while maintaining the same friendly "Saber" personality.
-- احسب المجموع دائماً بغض النظر عن اللغة.
-- التزم بقائمة الأسعار والتوصيل نفسها.
-- لا تمسح الذاكره بعد اخذ الطلب بل ابقى معه في الطلب في حالى قام باي تحديث 
-- يوجد حجز لمواعيد استلام و التوصيل 
-- المطعم فقط استلام او توصيل لا يوجد صالة 
-📍 **Location**: Amman - University of Jordan St.
-⏰ **Hours**: 2:00 PM - 3:30 AM.
-... (باقي المنيو والتوصيل كما هي)
-`;
-};
-أنت "صابر"، المسؤول عن الطلبات في مطعم (صابر جو سناك) في عمان.
-أنت نشمي، خدوم، وتستخدم اللهجة الأردنية اللطيفة (مثل: "أبشر"، "يا غالي"، "على راسي").
+    return `أنت "صابر"، المسؤول عن الطلبات في مطعم (صابر جو سناك) في عمان. شخصيتك نشمية، خدومة، وبلهجة أردنية.
+📍 الموقع: عمان - شارع الجامعة الأردنية - طلوع هافانا.
+⏰ الدوام: 2:00 ظهراً - 3:30 فجراً. لا يوجد صالة (استلام أو توصيل فقط).
 
-📍 **معلومات الموقع**: 
-- العنوان: عمان - شارع الجامعة الأردنية - طلوع هافانا.
-- فرعنا الوحيد: لا يوجد فروع أخرى.
-- لوكيشن: https://maps.app.goo.gl/NdFQY67DEnswQdKZ9
+🍔 **المنيو وعروض التوفير**:
+- ساندويش ديناميت (45 سم): 1 د.أ | صاروخ شاورما (45 سم): 1.5 د.أ | خابور كباب: 2 د.أ.
+- وجبات فردية (زنجر، سكالوب، برجر): 2 د.أ.
+- وجبات عائلية: اقتصادية (7د)، عائلية (10د)، عملاقة (14د).
+- شاورما: وجبة اقتصادية (6د)، وجبة أوفر (9د).
+*(ملاحظة: لتحويل أي ساندويش لوجبة أضف 1 دينار)*.
 
-⏰ **ساعات الدوام**: من 2:00 ظهراً حتى 3:30 فجراً.
-💰 **الدفع**: كاش، زين كاش، أو CliQ (0796893403).
+🚚 **التوصيل**: (صويلح 1.5 | الجامعة، الجبيهة، الرشيد 2 | خلدا 2.5 | طبربور 3.5).
 
-🍔 **المنيو الرسمي (أسعار بالدينار)**:
-1. **عروض التوفير (الأكثر طلباً)**:
-   - ساندويش ديناميت (45 سم): 1 د.أ
-   - صاروخ شاورما (45 سم): 1.5 د.أ
-   - قنبلة رمضان (برجر 250 جرام): 2.25 د.أ
-   - خابور كباب (45 سم - 250غم كباب): 2 د.أ
-   - (لتحويل أي ساندويش أو عرض لوجبة مع بطاطا وبيبسي أضف 1 دينار).
+📅 **نظام الحجز وتجهيز الطلبات**:
+- مسموح للزبون طلب تجهيز الطلب لموعد معين اليوم.
+- المتطلبات: (الاسم، رقم الهاتف، الموعد، الطلب، المنطقة).
+- عند اكتمال البيانات، أرسل [KITCHEN_GO] متبوعاً بالملخص.
 
-2. **الوجبات العائلية**:
-   - الاقتصادية (7 د.أ): 4 ساندويشات مشكلة + 2 بطاطا + 1 لتر بيبسي.
-   - العائلية (10 د.أ): 6 ساندويشات مشكلة + 4 بطاطا + 2 لتر بيبسي.
-   - العملاقة (14 د.أ): 9 ساندويشات مشكلة + 6 بطاطا + 3 لتر بيبسي.
-   - وجبة شاورما اقتصادية (6 د.أ): 6 ساندويشات (48 قطعة) + بطاطا عائلي.
-   - وجبة شاورما أوفر (9 د.أ): 8 ساندويشات (72 قطعة) + بطاطا عائلي كبير.
-
-3. **الوجبات الفردية والسندويشات**:
-   - وجبات (سكالوب، زنجر، برجر 150غم): 2 د.أ (الساندويش وحده بـ 1.5).
-   - وجبات الشاورما: عادي (2 د.أ)، سوبر (2.75 د.أ)، دبل (3.25 د.أ)، تربل (4 د.أ).
-   - ساندويش شاورما: عادي (1 د.أ)، سوبر (1.5 د.أ).
-
-🚚 **قائمة مناطق التوصيل الكاملة (بالدينار)**:
-- **1.5 د.أ**: صويلح، إشارة الدوريات، مجدي مول، المختار مول.
-- **1.75 د.أ**: طلوع نيفين.
-- **2 د.أ**: شارع الجامعة، الجامعة الأردنية، ضاحية الرشيد، حي الجامعة، الجبيهة، ابن عوف، الكمالية، حي الديوان، المدينة الرياضية، ضاحية الروضة، تلاع العلي، حي الخالديين، جبل الحسين، المستشفى التخصصي، دوار الداخلية، استقلال مول، مكة مول، مستشفى الامل، ضاحية الاستقلال، شارع المدينة المنورة، ستي مول، نفق الصحافة، دوار الواحة، مشفى الحرمين، كلية المجتمع العربي.
-- **2.25 د.أ**: حي البركة، الرابية، دوار الكيلو، دوار خلدا.
-- **2.5 د.أ**: الديار، السهل، الروابي، ام اذينة، الصالحين، المستشفى الإسلامي، خلدا، ام السماق، المدينة الطبية، دابوق، حي المنصور، الجاردنز، شارع وصفي التل، الشميساني، وادي صقرة، اللويبدة، العبدلي، جبل القلعة، وادي الحدادة، عرجان، ضاحية الامير حسن، اسكان الصيادلة، ضاحية الفاروق، مجمع الاعمال، مدارس الاتحاد، ضاحية الامير راشد، مستشفى عبدالهادي، مستشفى فرح، جامعة العلوم الاسلامية، مستشفى الرويال، دوار المدينة الطبية، دوار الشعب، السفارة الصينية، دائرة الافتاء، وزارة الثقافة.
-- **2.75 د.أ**: شارع مكة، دوار المشاغل، شارع عبدالله غوشة، مجمع جبر، مخيم الحسين.
-- **3 د.أ**: الفحيص، الدوار الأول، الثاني، الثالث، الرابع، الخامس، السادس، السابع، الثامن، جبل عمان، عبدون، الرونق، الجندويل، الكرسي، ابو نصير، شفا بدران، الكوم، طريق المطار، حي نزال، جبل النزهه، جبل القصور، ضاحية الاقصى، شارع الاذاعة، جبل النظيف، مجمع المحطة، الجبل الاخضر، شارع الاستقلال، رأس العين، المهاجرين، ضاحية الياسمين، ربوة عبدون، حي الصحابة، ضاحية النخيل، الذراع الغربي، كلية لومينوس، حي الرحمانية، عريفة مول، السفارة الامريكية، مستشفى الملكة علياء، حي الصديق، حي الرونق، مستشفى الامير حمزة، مركز السكري، المصدار، قرية النخيل، شارع عرار، صافوط، البقعة.
-- **3.25 د.أ**: جبل الزهور.
-- **3.5 د.أ**: البيادر، وسط البلد، شارع الحرية، المقابلين، الهاشمي الشمالي، الهاشمي الجنوبي، مستشفى البشير، طبربور، مستشفى الحياة، جبل المريخ.
-- **3.6 د.أ**: مرج الحمام.
-- **4 د.أ**: وادي السير، الرباحية، المستندة، ماركا الجنوبية، خريبة السوق، اليادودة، البنيات، ضاحية الحاج حسن، جبل التاج، جبل الجوفة، الوحدات، وادي الرمم، العلكومية، الجويدة، ماركا الشمالية، ابو علندا، القويسمة، ام نوارة، جبل المنارة، حي عدن، كلية حطين، دوار الجمرك، دوار الشرق الاوسط، الاشرفية، ام الحيران، دوار الحمايدة، جاوا، جبل النصر، صالحية العابد، الرجيب، طارق المطار، جبل الحديد، محكمة جنوب عمان، السوق المركزي، ضاحية الامير علي، جامعة البترا، الحرشة، ام قصير، شارع الحزام، نادي السباق، مستشفى ماركا التخصصي، مستشفى ماركا العسكري، حي الارمن، حي الطفايلة، الظهير، المرقب، مدارس الحصاد التربوي، ابو السوس، جامعة عمان المفتوحة.
-- **5 د.أ**: عراق الامير.
-
-`
-⚠️ **تعليمات إرسال الطلب للمطبخ (إجباري)**:
-بمجرد تأكيد الطلب، أرسل الكود [KITCHEN_GO] متبوعاً بهذا القالب حرفياً:
-
-[KITCHEN_GO]
-🔔 **طلب جديد مؤكد**
-- **الاسم**: [اسم الزبون]
-- **الرقم**: [رقم الهاتف]
-- **العنوان**: [المنطقة بالتفصيل]
-- **الطلب**: [الأصناف المطلوبة]
-- **الحساب**: [سعر الأكل] + [التوصيل]
-- **المجموع الكلي**: [الحساب النهائي] دينار
-
-الملاحظة: التجهيز خلال 30-45 دقيقة.
+⚠️ **قواعد صارمة**:
+1. لا ترسل [KITCHEN_GO] إلا إذا كتب الزبون رقمه (07xxxxxxxx).
+2. بمجرد توفر البيانات، اعرض الملخص متبوعاً بـ [KITCHEN_GO].
+3. الصيغة للمطبخ بعد الكود:
+🔔 طلب جديد مؤكد!
+- النوع: [توصيل/استلام]
+- الاسم: [الاسم]
+- الرقم: [الرقم]
+- العنوان: [المنطقة]
+- الموعد: [الوقت]
+- الطلب: [التفاصيل]
+- المجموع: [الحساب + التوصيل] دينار`;
 };
 
-/* ================= دوال الإرسال ================= */
-async function sendWA(chatId, message) {
+/* ================= 2. دوال الإرسال ================= */
+async function sendMessage(platform, chatId, message) {
     try {
-        await axios.post(`${SETTINGS.API_URL}/sendMessage/${SETTINGS.GREEN_TOKEN}`, {
-            chatId: chatId, message: message
-        });
-    } catch (err) { console.error("WA Send Error:", err.response?.data || err.message); }
+        if (platform === "wa") {
+            await axios.post(`${SETTINGS.API_URL}/sendMessage/${SETTINGS.GREEN_TOKEN}`, { chatId, message });
+        } else {
+            await axios.post(`https://graph.facebook.com/v21.0/me/messages?access_token=${SETTINGS.PAGE_TOKEN}`, {
+                recipient: { id: chatId }, message: { text: message }
+            });
+        }
+    } catch (err) { console.error("Send Error:", err.message); }
 }
 
-async function sendFB(psid, message) {
-    try {
-        await axios.post(`https://graph.facebook.com/v21.0/me/messages?access_token=${SETTINGS.PAGE_TOKEN}`, {
-            recipient: { id: psid }, message: { text: message }
-        });
-    } catch (err) { console.error("FB Send Error:", err.message); }
-}
-
-/* ================= العقل المدبر ================= */
+/* ================= 3. العقل المدبر ================= */
 async function handleUserMessage(chatId, userMessage, platform = "wa", senderName = "يا غالي") {
-    // التأكد من وجود الجلسة
-    if (!SESSIONS[chatId]) {
-        SESSIONS[chatId] = { history: [], lastKitchenMsg: null };
-    }
+    if (!SESSIONS[chatId]) SESSIONS[chatId] = { history: [], lastKitchenMsg: null };
     const session = SESSIONS[chatId];
-    const msgClean = userMessage.trim();
 
-    // فحص التأكيد لإرسال المطبخ
-    const isConfirmation = /^(تم|تمام|أكد|تاكيد|اعتمد|وصل|ok|done)$/i.test(msgClean);
+    // كشف التأكيد (تم)
+    const isConfirmation = /^(تم|تمام|اوكي|ok|أكد|تاكيد|اعتمد)$/i.test(userMessage.trim());
     
     if (isConfirmation && session.lastKitchenMsg) {
-        console.log(`جارِ الإرسال للمطبخ للعميل: ${senderName}`);
-        await sendWA(SETTINGS.KITCHEN_GROUP, session.lastKitchenMsg);
-        
-        const confirmMsg = `أبشر يا ${senderName}، طلبك صار عند الشباب بالمطبخ! نورت صابر جو 🙏`;
-        platform === "wa" ? await sendWA(chatId, confirmMsg) : await sendFB(chatId, confirmMsg);
-        
-        session.lastKitchenMsg = null; 
-        session.history = []; // تصفير المحادثة للبدء من جديد
+        await sendMessage("wa", SETTINGS.KITCHEN_GROUP, session.lastKitchenMsg);
+        const confirmMsg = `أبشر يا ${senderName}، طلبك اعتمدناه وصار بالمطبخ! نورت صابر جو 🙏`;
+        await sendMessage(platform, chatId, confirmMsg);
+        session.lastKitchenMsg = null; // مسح الطلب بعد الإرسال
         saveData();
         return;
     }
 
     try {
         const aiResponse = await axios.post("https://api.openai.com/v1/chat/completions", {
-            model: "gpt-4o-mini", 
+            model: "gpt-4o-mini",
             messages: [
-                { role: "system", content: getSystemPrompt() + `\n اسم العميل الحالي: ${senderName}` },
+                { role: "system", content: getSystemPrompt() + `\n العميل: ${senderName}` },
                 ...session.history.slice(-10),
                 { role: "user", content: userMessage }
             ],
@@ -187,55 +110,54 @@ async function handleUserMessage(chatId, userMessage, platform = "wa", senderNam
         if (reply.includes("[KITCHEN_GO]")) {
             const parts = reply.split("[KITCHEN_GO]");
             session.lastKitchenMsg = parts[1].trim(); 
-            const finalReply = parts[0].trim() + "\n\nاكتب 'تم' للتأكيد وإرسال الطلب للمطبخ ✅";
-            platform === "wa" ? await sendWA(chatId, finalReply) : await sendFB(chatId, finalReply);
+            const finalReply = parts[0].trim() + "\n\nاكتب 'تم' لتأكيد الطلب وإرساله للمطبخ ✅";
+            await sendMessage(platform, chatId, finalReply);
         } else {
-            platform === "wa" ? await sendWA(chatId, reply) : await sendFB(chatId, reply);
+            // إذا غير الطلب وهو في مرحلة "قبل التأكيد" نحدث الذاكرة
+            await sendMessage(platform, chatId, reply);
         }
 
         session.history.push({ role: "user", content: userMessage }, { role: "assistant", content: reply });
-        if (session.history.length > 12) session.history = session.history.slice(-12);
-        saveData(); 
+        if (session.history.length > 15) session.history = session.history.slice(-15);
+        saveData();
 
-    } catch (err) {
-        console.error("AI Error:", err.response?.data || err.message);
-    }
+    } catch (err) { console.error("AI Error:", err.message); }
 }
 
-/* ================= Webhooks ================= */
+/* ================= 4. Webhooks ================= */
 app.post("/webhook", async (req, res) => {
-    // الرد السريع جداً لمنع التكرار
-    res.sendStatus(200); 
-
+    res.sendStatus(200); // رد فوري
     const body = req.body;
 
-    // معالجة الواتساب
+    // واتساب (GreenAPI)
     if (body.typeWebhook === "incomingMessageReceived") {
         const chatId = body.senderData?.chatId;
         const senderName = body.senderData?.senderName || "يا غالي";
         const messageData = body.messageData;
         
         let text = "";
-        if (messageData?.typeMessage === "textMessage") {
-            text = messageData.textMessageData.textMessage;
-        }
+        if (messageData?.typeMessage === "textMessage") text = messageData.textMessageData.textMessage;
+        else if (messageData?.typeMessage === "quotedMessage") text = messageData.quotedMessageData.text;
 
         if (chatId && !chatId.endsWith("@g.us") && text) {
             handleUserMessage(chatId, text, "wa", senderName);
         }
     } 
-    // معالجة فيسبوك
+    // فيسبوك ومسنجر
     else if (body.object === "page") {
-        const entry = body.entry?.[0]?.messaging?.[0];
-        if (entry?.message?.text) {
-            handleUserMessage(entry.sender.id, entry.message.text, "facebook", "يا غالي");
+        const messaging = body.entry?.[0]?.messaging?.[0];
+        if (messaging?.message?.text) {
+            handleUserMessage(messaging.sender.id, messaging.message.text, "facebook", "يا غالي");
         }
     }
 });
 
 app.get("/webhook", (req, res) => {
-    res.status(200).send(req.query["hub.challenge"] || "Saber Engine Online");
+    const mode = req.query["hub.mode"];
+    const token = req.query["hub.verify_token"];
+    const challenge = req.query["hub.challenge"];
+    if (mode && token === "SaberJo_Secret_2026") res.status(200).send(challenge);
+    else res.sendStatus(403);
 });
 
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`Saber Engine is Live on port ${PORT}!`));
+app.listen(3000, () => console.log("Saber Engine Running Securely!"));
