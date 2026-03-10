@@ -1,6 +1,8 @@
 import express from "express";
 import axios from "axios";
-
+function delay(ms){
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
 const app = express();
 app.use(express.json());
 /* Facebook webhook verification */
@@ -46,6 +48,7 @@ console.log("ORDER SENT TO KITCHEN");
 if(platform === "facebook"){
 await sendFB(chatId,"أبشر يا غالي، طلبك وصل للمطبخ 🙏");
 }else{
+      await delay(1500 + Math.random() * 2000);
 await sendWA(chatId,"أبشر يا غالي، طلبك وصل للمطبخ 🙏");
 }
 
@@ -82,8 +85,10 @@ if (reply.indexOf("[KITCHEN_GO]") !== -1) {
         } else {
 
             if(platform === "facebook"){
+                  await delay(1500 + Math.random() * 2000);
                 await sendFB(chatId, reply);
             }else{
+                  await delay(1500 + Math.random() * 2000);
                 await sendWA(chatId, reply);
             }
 
