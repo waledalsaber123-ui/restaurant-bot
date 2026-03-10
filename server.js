@@ -105,11 +105,24 @@ async function handleUserMessage(chatId, userMessage, platform = "wa") {
         let reply = aiResponse.data.choices[0].message.content;
 
         /* --- إذا الرد يحتوي على [KITCHEN_GO] --- */
-        if (reply.includes("[KITCHEN_GO]")) {
-            const parts = reply.split("[KITCHEN_GO]");
-            session.lastKitchenMsg = parts[1].trim();
-            const finalReply = parts[0].trim() + "\n\nاكتب **تم** للتأكيد ✅";
-            await sendMsg(platform, chatId, finalReply);
+   /* --- إذا الرد يحتوي على [KITCHEN_GO] --- */
+if (reply.includes("[KITCHEN_GO]")) {
+    // قسّم النص لنصفين: قبل الكود وبعد الكود
+    const parts = reply.split("[KITCHEN_GO]");
+    
+    // النص اللي قبل الكود يروح للزبون
+    const customerReply = parts[0].trim();
+    // النص اللي بعد الكود (الملخص الكامل) يروح للمطبخ
+    const kitchenOrder = parts[1].trim(); 
+
+    // تخزين النص الكامل للمطبخ في الجلسة عشان نبعته بس الزبون يكتب "تم"
+    session.lastKitchenMsg = kitchenOrder;
+
+    // إرسال الرد للزبون مع طلب التأكيد
+    const finalReply = customerReply + "\n\nاكتب **تم** للتأكيد ✅";
+    await sendMsg(platform, chatId, finalReply);
+
+}
 
         } else {
             /* --- إذا في طلب معلق لم يُؤكد، ذكّر الزبون --- */
