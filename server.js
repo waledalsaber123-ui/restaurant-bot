@@ -133,33 +133,38 @@ app.post("/webhook", async (req, res) => {
       ],
       temperature: 0
     }, { headers: { Authorization: `Bearer ${SETTINGS.OPENAI_KEY}` } });
+let reply = aiResponse.data.choices[0].message.content;
 
-    let reply = aiResponse.data.choices[0].message.content;
-
-    // فحص إذا الرد يحتوي على كود المطبخ
+    // 1. معالجة الرسالة إذا كان فيها كود المطبخ [KITCHEN_GO]
     if (reply.includes("[KITCHEN_GO]")) {
       const parts = reply.split("[KITCHEN_GO]");
-      const clientMsg = parts[0].trim();
-      const kitchenMsg = parts[1].trim();
+      const clientMsg = parts[0].trim(); // الرسالة الموجهة للزبون
+      const kitchenMsg = parts[1].trim(); // الرسالة الموجهة للمطبخ
 
-      // التحقق من وجود الاسم والرقم في رسالة المطبخ
+      // التأكد من وجود رقم هاتف قبل الإرسال للمطبخ
       const hasPhone = /07[789]\d{7}/.test(kitchenMsg);
+
       if (hasPhone) {
-          // إرسال للمطبخ
-          await sendWA(SETTINGS.KITCHEN_GROUP, `🔥 طلب جديد للمطبخ:\n${kitchenMsg}`);
-          // إرسال تأكيد نهائي للزبون
-          await sendWA(chatId, clientMsg || "أبشر يا غالي، عدلنا الطلب وصار بالمطبخ!");
-          
-          // تأخير مسح الجلسة لضمان بقاء المعلومات لفترة
-          setTimeout(() => { if(SESSIONS[chatId]) delete SESSIONS[chatId]; }, 86400000); 
-          return;
+        // أرسل للمطبخ
+        await sendWA(SETTINGS.KITCHEN_GROUP, `🔥 طلب جديد للمطبخ:\n${kitchenMsg}`);
+        // أرسل للزبون التأكيد
+        await sendWA(chatId, clientMsg || "أبشر يا غالي، طلبك صار بالمطبخ!");
+      } else {
+        // إذا الكود طلع بس لسه ما كمل البيانات، أرسل الرد العادي للزبون
+        await sendWA(chatId, reply.replace("[KITCHEN_GO]", "")); 
       }
+    } else {
+      // 2. إذا كان رد طبيعي (استفسار أو لسه بختار)، أرسل الرد للزبون
+      await sendWA(chatId, reply);
     }
 
-    // إذا لم يرسل الكود، نرسل الرد الطبيعي ونحفظ التاريخ
-    await sendWA(chatId, reply);
+    // 3. حفظ المحادثة في الذاكرة (عشان ما ينسى الزبون)
     session.history.push({ role: "user", content: userMessage }, { role: "assistant", content: reply });
 
+    // نصيحة: حدد الذاكرة بـ 15 رسالة عشان التكلفة ما تزيد عليك
+    if (session.history.length > 15) {
+      session.history = session.history.slice(-15);
+    }
   } catch (err) {
     console.error("Error:", err.message);
   }
