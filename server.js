@@ -204,7 +204,6 @@ app.post("/webhook", async (req, res) => {
     const session = SESSIONS[chatId];
 
     let userMessage = body.messageData?.textMessageData?.textMessage || body.messageData?.extendedTextMessageData?.text;
-    if (!userMessage) return;
 // --- الجزء المصلح: منطق التأكيد والإرسال للجروب ---
   if (/^(تم|تمام|ايوا|ok|أكد|تاكيد)$/i.test(userMessage.trim()) && session.lastKitchenMsg) {
       await sendWA(SETTINGS.KITCHEN_GROUP, session.lastKitchenMsg); // إرسال لجروب المطبخ
