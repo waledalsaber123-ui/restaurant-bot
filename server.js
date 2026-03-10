@@ -166,7 +166,7 @@ async function handleUserMessage(chatId, userMessage, platform = "wa", senderNam
 
     try {
         const aiResponse = await axios.post("https://api.openai.com/v1/chat/completions", {
-            model: "gpt-4o", 
+            model: "gpt-4o-mini", 
             messages: [
                 { role: "system", content: getSystemPrompt() + `\n العميل اسمه: ${senderName}.` },
                 // تقليل الـ history لآخر 6 رسائل فقط لتوفير التكاليف (Tokens)
