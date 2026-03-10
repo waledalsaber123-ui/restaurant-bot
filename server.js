@@ -82,57 +82,63 @@ async function handleUserMessage(chatId, userMessage, platform = "wa") {
         session.lastKitchenMsg = null;
         return;
     }
-
-    /* --- استدعاء الذكاء الاصطناعي --- */
-    try {
-        const aiResponse = await axios.post(
-            "https://api.openai.com/v1/chat/completions",
-            {
-                model: "gpt-4o",
-                messages: [
-                    { role: "system", content: getSystemPrompt() },
-                    ...session.history.slice(-18),
-                    { role: "user", content: userMessage }
-                ],
-                temperature: 0
-            },
-            {
-                headers:  { Authorization: `Bearer ${SETTINGS.OPENAI_KEY}` },
-                timeout:  30000
-            }
-        );
-
-        let reply = aiResponse.data.choices[0].message.content;
-
-        /* --- إذا الرد يحتوي على [KITCHEN_GO] --- */
-   /* --- إذا الرد يحتوي على [KITCHEN_GO] --- */
-if (reply.includes("[KITCHEN_GO]")) {
-    // قسّم النص لنصفين: قبل الكود وبعد الكود
-    const parts = reply.split("[KITCHEN_GO]");
-    
-    // النص اللي قبل الكود يروح للزبون
-    const customerReply = parts[0].trim();
-    // النص اللي بعد الكود (الملخص الكامل) يروح للمطبخ
-    const kitchenOrder = parts[1].trim(); 
-
-    // تخزين النص الكامل للمطبخ في الجلسة عشان نبعته بس الزبون يكتب "تم"
-    session.lastKitchenMsg = kitchenOrder;
-
-    // إرسال الرد للزبون مع طلب التأكيد
-    const finalReply = customerReply + "\n\nاكتب **تم** للتأكيد ✅";
-    await sendMsg(platform, chatId, finalReply);
-
-}
-
-        } else {
-            /* --- إذا في طلب معلق لم يُؤكد، ذكّر الزبون --- */
-            let finalReply = reply;
-            if (session.lastKitchenMsg) {
-                finalReply += "\n\n⚠️ حبيبنا، في طلب معلق بانتظار تأكيدك! اكتب **تم** عشان نبعثه للمطبخ فوراً.";
-            }
-            await sendMsg(platform, chatId, finalReply);
+/* --- استدعاء الذكاء الاصطناعي --- */
+try {
+    const aiResponse = await axios.post(
+        "https://api.openai.com/v1/chat/completions",
+        {
+            model: "gpt-4o",
+            messages: [
+                { role: "system", content: getSystemPrompt() },
+                ...session.history.slice(-18),
+                { role: "user", content: userMessage }
+            ],
+            temperature: 0
+        },
+        {
+            headers: { Authorization: `Bearer ${SETTINGS.OPENAI_KEY}` },
+            timeout: 30000
         }
+    );
 
+    let reply = aiResponse.data.choices[0].message.content;
+
+    /* --- التعديل الجذري هون --- */
+    if (reply.includes("[KITCHEN_GO]")) {
+        // بنقسم النص لجزئين
+        const parts = reply.split("[KITCHEN_GO]");
+        
+        const customerReply = parts[0].trim(); // الحكي اللطيف للزبون
+        const kitchenOrder = parts[1].trim();  // الملخص اللي بيبدأ بـ 🔔 طلب جديد
+
+        // حفظ ملخص المطبخ بالكامل في السيشين
+        session.lastKitchenMsg = kitchenOrder;
+
+        // إرسال الرد للزبون مع طلب كلمة "تم"
+        const finalReply = customerReply + "\n\nاكتب **تم** للتأكيد ✅";
+        await sendMsg(platform, chatId, finalReply);
+
+    } else {
+        /* إذا الرد عادي (لسه بنجمع معلومات أو استفسار) */
+        let finalReply = reply;
+        
+        // إذا الزبون سأل سؤال وما أكد الطلب اللي قبله، بنذكره
+        if (session.lastKitchenMsg) {
+            finalReply += "\n\n⚠️ حبيبنا، في طلب معلق بانتظار تأكيدك! اكتب **تم** عشان نبعثه للمطبخ فوراً.";
+        }
+        await sendMsg(platform, chatId, finalReply);
+    }
+
+    /* حفظ المحادثة */
+    session.history.push(
+        { role: "user", content: userMessage },
+        { role: "assistant", content: reply }
+    );
+
+} catch (err) {
+    console.log("Error OpenAI:", err.message);
+    await sendMsg(platform, chatId, "أبشر يا غالي، بس ارجع ابعث رسالتك كمان مرة، كان في ضغط عالخط 🙏");
+}
         /* --- حفظ المحادثة في الذاكرة --- */
         session.history.push(
             { role: "user",      content: userMessage },
