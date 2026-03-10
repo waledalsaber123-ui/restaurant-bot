@@ -153,14 +153,14 @@ async function handleUserMessage(chatId, userMessage, platform = "wa", senderNam
 
     const isConfirmation = /^(تم|تمام|ايوا|ok|أكد|تاكيد|اعتمد|وصل)$/i.test(userMessage.trim());
     
-    // هاد الجزء صار يقرأ من الذاكرة المحفوظة بالملف
+    // إذا العميل أكد وكان فيه ملخص جاهز مخزن
     if (isConfirmation && session.lastKitchenMsg) {
         await sendWA(SETTINGS.KITCHEN_GROUP, session.lastKitchenMsg);
         const confirmMsg = `أبشر يا ${senderName}، طلبك اعتمدناه وصار بالمطبخ! نورت صابر جو 🙏`;
         platform === "facebook" ? await sendFB(chatId, confirmMsg) : await sendWA(chatId, confirmMsg);
         
-        session.lastKitchenMsg = null;
-        saveData(); // حفظ التغيير فوراً
+        session.lastKitchenMsg = null; 
+        saveData(); 
         return;
     }
 
@@ -169,11 +169,10 @@ async function handleUserMessage(chatId, userMessage, platform = "wa", senderNam
             model: "gpt-4o-mini", 
             messages: [
                 { role: "system", content: getSystemPrompt() + `\n العميل اسمه: ${senderName}.` },
-                // تقليل الـ history لآخر 6 رسائل فقط لتوفير التكاليف (Tokens)
-                ...session.history.slice(-6), 
+                ...session.history.slice(-10), // زدنا الذاكرة شوي عشان ما ينسى التعديلات
                 { role: "user", content: userMessage }
             ],
-            temperature: 0.7 
+            temperature: 0.5 
         }, { headers: { Authorization: `Bearer ${SETTINGS.OPENAI_KEY}` } });
 
         let reply = aiResponse.data.choices[0].message.content;
@@ -184,13 +183,13 @@ async function handleUserMessage(chatId, userMessage, platform = "wa", senderNam
             const finalReply = parts[0].trim() + "\n\nاكتب 'تم' للتأكيد ✅";
             platform === "facebook" ? await sendFB(chatId, finalReply) : await sendWA(chatId, finalReply);
         } else {
+            // إذا الرد ما فيه كود المطبخ، بنمسح أي ملخص قديم عشان لو العميل غير رأيه
+            session.lastKitchenMsg = null;
             platform === "facebook" ? await sendFB(chatId, reply) : await sendWA(chatId, reply);
         }
 
         session.history.push({ role: "user", content: userMessage }, { role: "assistant", content: reply });
-        
-        // تنظيف الذاكرة بشكل دوري وحفظها
-        if (session.history.length > 10) session.history = session.history.slice(-10);
+        if (session.history.length > 12) session.history = session.history.slice(-12);
         saveData(); 
 
     } catch (err) {
