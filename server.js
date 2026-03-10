@@ -53,6 +53,7 @@ const getSystemPrompt = () => {
 العروض الي نركز عليها اكتر شي و نرفع منها سلة الشراء 
 ساندويش زنجر ديناميت 45 سم متوسط الحرارة مناسب للاطفال و الكبار 1 دينار 
 صاروخ الشاورما 45 سم 1.5 دينار 
+برجر شاورما 1.25 دينار 
 قمبلة رمضان ( برجر 250 جرام ) ارتفاعها 17 سم تقريبا بسعر 2.25 
 خابور كباب ساندويش كباب طول 45 سم يحتوي على كباب بوزن 200 الى 250 غم و خلصه خاصه بسعر 2 دينار 
 الندويشات 
@@ -177,52 +178,53 @@ async function handleUserMessage(chatId, userMessage, platform = "wa", senderNam
     }
 }
 
-/* ================= 5. Webhooks ================= */
+/* ================= 5. Webhooks المصلحة ================= */
 app.get("/webhook", (req, res) => {
     const VERIFY_TOKEN = "SaberJo_Secret_2026";
     if (req.query["hub.mode"] === "subscribe" && req.query["hub.verify_token"] === VERIFY_TOKEN) {
-        res.status(200).send(req.query["hub.challenge"]);
-    } else { res.sendStatus(403); }
+        return res.status(200).send(req.query["hub.challenge"]);
+    }
+    res.sendStatus(403);
 });
 
 app.post("/webhook", async (req, res) => {
     const body = req.body;
 
-    // فيسبوك / إنستغرام
+    // 1. معالجة فيسبوك وانستغرام
     if (body.object === "page" || body.object === "instagram") {
-        res.status(200).send("EVENT_RECEIVED");
         const messaging = body.entry?.[0]?.messaging?.[0];
         if (messaging?.message?.text) {
-            // فيسبوك لا يوفر الاسم بسهولة، نستخدم "يا غالي" مبدئياً
             await handleUserMessage(messaging.sender.id, messaging.message.text, "facebook", "يا غالي");
         }
-        return;
+        return res.sendStatus(200); // إرسال رد واحد فقط والخروج
     }
 
-    // واتساب (GreenAPI)
+    // 2. معالجة واتساب (GreenAPI)
     if (body.typeWebhook === "incomingMessageReceived") {
-        res.sendStatus(200);
         const chatId = body.senderData?.chatId;
-        const senderName = body.senderData?.senderName || "يا غالي"; // سحب الاسم لمنع الحظر
+        const senderName = body.senderData?.senderName || "يا غالي";
         
         let messageContent = "";
 
-        // معالجة النصوص
         if (body.messageData?.typeMessage === "textMessage") {
             messageContent = body.messageData.textMessageData.textMessage;
         } 
-        // معالجة الصور (البوت يشعر بوجود صورة)
         else if (body.messageData?.typeMessage === "imageMessage") {
-            messageContent = "[الزبون أرسل صورة، اسأله عن تفاصيل الطلب بالصورة أو إذا كان وصلاً]";
+            messageContent = "[الزبون أرسل صورة، اسأله عن تفاصيل الطلب بالصورة]";
         }
-        // معالجة الفويسات (رسالة مسجلة)
         else if (body.messageData?.typeMessage === "quotedMessage" || body.messageData?.fileMessageData) {
-            messageContent = "[الزبون أرسل فويس، اعتذر منه واطلب كتابة الطلب نصاً حالياً]";
+            messageContent = "[الزبون أرسل فويس، اطلب منه كتابة الطلب نصاً]";
         }
 
         if (chatId && !chatId.endsWith("@g.us") && messageContent) {
             await handleUserMessage(chatId, messageContent, "wa", senderName);
         }
+        return res.sendStatus(200); // إرسال رد واحد فقط والخروج
+    }
+
+    // لضمان عدم بقاء الطلب معلقاً
+    if (!res.headersSent) {
+        res.sendStatus(200);
     }
 });
 
