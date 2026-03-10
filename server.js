@@ -114,7 +114,7 @@ app.post("/webhook", async (req, res) => {
   const body = req.body;
 
   if (body.typeWebhook !== "incomingMessageReceived") return;
-
+console.log("MESSAGE FROM USER:", userMessage);
   const chatId = body.senderData?.chatId;
   const author = body.senderData?.sender; // الشخص اللي بعث الرسالة
 
