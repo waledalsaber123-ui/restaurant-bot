@@ -118,12 +118,11 @@ app.post("/webhook", async (req, res) => {
   const chatId = body.senderData?.chatId;
   const author = body.senderData?.sender; // الشخص اللي بعث الرسالة
 
-  // 1. أهم شرط: لا ترد على الرسائل اللي طالعة من البوت نفسه أو من داخل الجروبات
-  if (!chatId || chatId.includes("@g.us") || author.includes("@g.us")) {
-    console.log("رسالة من جروب أو من البوت - تم التجاهل");
+ // 1. التعديل الجديد: الرد فقط على الزبائن (الأفراد) وتجاهل أي إشي ثاني
+if (!chatId || !chatId.includes("@c.us")) {
+    console.log("تجاهل: الرسالة ليست من زبون فردي (جروب أو نظام)");
     return;
-  }
-
+}
   // 2. استخراج نص الرسالة بشكل أضمن
   let userMessage = body.messageData?.textMessageData?.textMessage || 
                     body.messageData?.extendedTextMessageData?.text || "";
@@ -138,7 +137,7 @@ app.post("/webhook", async (req, res) => {
       model: "gpt-4o",
       messages: [
         { role: "system", content: getSystemPrompt() },
-        ...(SESSIONS[chatId]?.history?.slice(-15) || []),
+        ...(SESSIONS[chatId]?.history?.slice(-12) || []),
         { role: "user", content: userMessage }
       ],
       temperature: 0
