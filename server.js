@@ -20,8 +20,8 @@ app.get("/webhook", (req, res) => {
     }
   }
 });
-const SETTINGS = {
-  OPENAI_KEY: process.env.OPENAI_KEY,
+const SETTINGS = { // سطر جديد تماماً
+    OPENAI_KEY: process.env.OPENAI_KEY,
   GREEN_TOKEN: process.env.GREEN_TOKEN,
   ID_INSTANCE: process.env.ID_INSTANCE,
   KITCHEN_GROUP: "120363407952234395@g.us",
