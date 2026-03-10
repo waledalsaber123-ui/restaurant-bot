@@ -1,6 +1,8 @@
 import express from "express";
 import axios from "axios";
-
+function delay(ms){
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
 const app = express();
 app.use(express.json());
 /* Facebook webhook verification */
@@ -32,23 +34,29 @@ const SETTINGS = {
 const SESSIONS = {};
 async function handleUserMessage(chatId, userMessage, platform="wa") {
 
-    if (!SESSIONS[chatId]) SESSIONS[chatId] = { history: [], lastKitchenMsg: null };
-    const session = SESSIONS[chatId];
+if (!SESSIONS[chatId]) {
+SESSIONS[chatId] = { history: [], lastKitchenMsg: null };
+}
+  const session = SESSIONS[chatId];   // 👈 هنا لازم يكون
+if (/^(تم|تمام|ايوا|ok|أكد|تاكيد)$/i.test(userMessage.trim()) && session.lastKitchenMsg) {
 
-    if (/^(تم|تمام|ايوا|ok|أكد|تاكيد)$/i.test(userMessage.trim()) && session.lastKitchenMsg) {
+console.log("Kitchen Msg:", session.lastKitchenMsg);
 
-        await sendWA(SETTINGS.KITCHEN_GROUP, session.lastKitchenMsg);
+await sendWA(SETTINGS.KITCHEN_GROUP, session.lastKitchenMsg);
 
-        if(platform === "facebook"){
-            await sendFB(chatId,"أبشر يا غالي، طلبك وصل للمطبخ 🙏");
-        }else{
-            await sendWA(chatId,"أبشر يا غالي، طلبك وصل للمطبخ 🙏");
-        }
+console.log("ORDER SENT TO KITCHEN");
 
-        session.lastKitchenMsg = null;
-        return;
-    }
+if(platform === "facebook"){
+await sendFB(chatId,"أبشر يا غالي، طلبك وصل للمطبخ 🙏");
+}else{
+      await delay(1500 + Math.random() * 2000);
+await sendWA(chatId,"أبشر يا غالي، طلبك وصل للمطبخ 🙏");
+}
 
+session.lastKitchenMsg = null;
+return;
+}
+  
     try {
 
         const aiResponse = await axios.post("https://api.openai.com/v1/chat/completions", {
@@ -62,8 +70,8 @@ async function handleUserMessage(chatId, userMessage, platform="wa") {
         }, { headers: { Authorization: `Bearer ${SETTINGS.OPENAI_KEY}` }});
 
         let reply = aiResponse.data.choices[0].message.content;
-
-        if (reply.includes("[KITCHEN_GO]")) {
+console.log("AI reply:", reply);
+if (reply.indexOf("[KITCHEN_GO]") !== -1) {              
 
             const parts = reply.split("[KITCHEN_GO]");
             session.lastKitchenMsg = parts[1].trim();
@@ -77,8 +85,10 @@ async function handleUserMessage(chatId, userMessage, platform="wa") {
         } else {
 
             if(platform === "facebook"){
+                  await delay(1500 + Math.random() * 2000);
                 await sendFB(chatId, reply);
             }else{
+                  await delay(1500 + Math.random() * 2000);
                 await sendWA(chatId, reply);
             }
 
@@ -204,11 +214,45 @@ app.post("/webhook", async (req, res) => {
     const session = SESSIONS[chatId];
 
     let userMessage = body.messageData?.textMessageData?.textMessage || body.messageData?.extendedTextMessageData?.text;
-    if (!userMessage) return;
+ if (!userMessage) return;
+/* ================= دوال الإرسال ================= */
+async function sendFB(psid, message) {
+    try {
+        await axios.post(`https://graph.facebook.com/v21.0/me/messages?access_token=${SETTINGS.PAGE_TOKEN}`, {
+            recipient: { id: psid },
+            sender_action: "mark_seen"
+        });
+        await axios.post(`https://graph.facebook.com/v21.0/me/messages?access_token=${SETTINGS.PAGE_TOKEN}`, {
+            recipient: { id: psid },
+            sender_action: "typing_on"
+        });
+        await delay(1500);
+        await axios.post(`https://graph.facebook.com/v21.0/me/messages?access_token=${SETTINGS.PAGE_TOKEN}`, {
+            recipient: { id: psid },
+            message: { text: message }
+        });
+    } catch (err) {
+        console.log("FB ERROR:", err.response?.data || err.message);
+    }
+}
+
+async function sendWA(chatId, message) {
+    try {
+        await axios.post(`${SETTINGS.API_URL}/sendMessage/${SETTINGS.GREEN_TOKEN}`, {
+            chatId: chatId,
+            message: message
+        });
+    } catch (err) {
+        console.log("WA ERROR:", err.response?.data || err.message);
+    }
+}
 // --- الجزء المصلح: منطق التأكيد والإرسال للجروب ---
   if (/^(تم|تمام|ايوا|ok|أكد|تاكيد)$/i.test(userMessage.trim()) && session.lastKitchenMsg) {
+      console.log("Kitchen Msg:", session.lastKitchenMsg);
+console.log("User Msg:", userMessage);
       await sendWA(SETTINGS.KITCHEN_GROUP, session.lastKitchenMsg); // إرسال لجروب المطبخ
-      await sendWA(chatId, "أبشر يا غالي، طلبك اعتمدناه وصار بالمطبخ! نورت مطعم صابر 🙏");
+  console.log("ORDER SENT TO KITCHEN");
+    await sendWA(chatId, "أبشر يا غالي، طلبك اعتمدناه وصار بالمطبخ! نورت مطعم صابر 🙏");
       session.lastKitchenMsg = null; 
       return; 
   } 
@@ -226,9 +270,9 @@ app.post("/webhook", async (req, res) => {
         }, { headers: { Authorization: `Bearer ${SETTINGS.OPENAI_KEY}` }, timeout: 30000 });
 
         let reply = aiResponse.data.choices[0].message.content;
-
-    if (reply.includes("[KITCHEN_GO]")) {
-            const parts = reply.split("[KITCHEN_GO]");
+console.log("AI reply:", reply);
+if (reply.indexOf("[KITCHEN_GO]") !== -1) {
+      const parts = reply.split("[KITCHEN_GO]");
             session.lastKitchenMsg = parts[1].trim();
             const finalReply = parts[0].trim() + "\n\nأكتب 'تم' للتأكيد ✅";
 
@@ -261,6 +305,43 @@ try {
     }
 }
   
+async function sendFB(psid, message) {
+    try {
 
+        // Seen
+        await axios.post(`https://graph.facebook.com/v21.0/me/messages?access_token=${SETTINGS.PAGE_TOKEN}`, {
+            recipient: { id: psid },
+            sender_action: "mark_seen"
+        });
+
+        // typing
+        await axios.post(`https://graph.facebook.com/v21.0/me/messages?access_token=${SETTINGS.PAGE_TOKEN}`, {
+            recipient: { id: psid },
+            sender_action: "typing_on"
+        });
+
+        await new Promise(resolve => setTimeout(resolve, 1500));
+
+        // إرسال الرسالة
+        await axios.post(`https://graph.facebook.com/v21.0/me/messages?access_token=${SETTINGS.PAGE_TOKEN}`, {
+            recipient: { id: psid },
+            message: { text: message }
+        });
+
+    } catch (err) {
+        console.log("FB ERROR:", err.response?.data || err.message);
+    }
+}
+// WhatsApp
+async function sendWA(chatId, message) {
+    try {
+        await axios.post(`${SETTINGS.API_URL}/sendMessage/${SETTINGS.GREEN_TOKEN}`, {
+            chatId: chatId,
+            message: message
+        });
+    } catch (err) {
+        console.log("WA ERROR:", err.response?.data || err.message);
+    }
+}
 app.listen(3000, () => console.log("Saber Smart Engine is Live & Stable!"));
 
