@@ -199,19 +199,6 @@ app.post("/webhook", async (req, res) => {
     }
 
     res.sendStatus(200);
-});
-    if (!SESSIONS[chatId]) SESSIONS[chatId] = { history: [], lastKitchenMsg: null };
-    const session = SESSIONS[chatId];
-
-    let userMessage = body.messageData?.textMessageData?.textMessage || body.messageData?.extendedTextMessageData?.text;
-    if (!userMessage) return;
-// --- الجزء المصلح: منطق التأكيد والإرسال للجروب ---
-  if (/^(تم|تمام|ايوا|ok|أكد|تاكيد)$/i.test(userMessage.trim()) && session.lastKitchenMsg) {
-      await sendWA(SETTINGS.KITCHEN_GROUP, session.lastKitchenMsg); // إرسال لجروب المطبخ
-      await sendWA(chatId, "أبشر يا غالي، طلبك اعتمدناه وصار بالمطبخ! نورت مطعم صابر 🙏");
-      session.lastKitchenMsg = null; 
-      return; 
-  } 
 
   try {
       // كود الـ axios بكمل هون طبيعي...
