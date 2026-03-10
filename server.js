@@ -153,7 +153,9 @@ console.log("MESSAGE FROM USER:", userMessage);
     if (!SESSIONS[chatId]) SESSIONS[chatId] = { history: [] };
 
     // فحص كود المطبخ
+  
     if (reply.includes("[KITCHEN_GO]")) {
+if (userMessage.length < 3 && (userMessage.includes("تم") || userMessage.includes("ok"))) {
       const parts = reply.split("[KITCHEN_GO]");
       const clientMsg = parts[0].trim();
       const kitchenMsg = parts[1].trim();
