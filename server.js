@@ -274,7 +274,43 @@ try {
     }
 }
   
+async function sendFB(psid, message) {
+    try {
 
+        // Seen
+        await axios.post(`https://graph.facebook.com/v21.0/me/messages?access_token=${SETTINGS.PAGE_TOKEN}`, {
+            recipient: { id: psid },
+            sender_action: "mark_seen"
+        });
+
+        // typing
+        await axios.post(`https://graph.facebook.com/v21.0/me/messages?access_token=${SETTINGS.PAGE_TOKEN}`, {
+            recipient: { id: psid },
+            sender_action: "typing_on"
+        });
+
+        await new Promise(resolve => setTimeout(resolve, 1500));
+
+        // إرسال الرسالة
+        await axios.post(`https://graph.facebook.com/v21.0/me/messages?access_token=${SETTINGS.PAGE_TOKEN}`, {
+            recipient: { id: psid },
+            message: { text: message }
+        });
+
+    } catch (err) {
+        console.log("FB ERROR:", err.response?.data || err.message);
+    }
+}
+// WhatsApp
+async function sendWA(chatId, message) {
+    try {
+        await axios.post(`${SETTINGS.API_URL}/sendMessage/${SETTINGS.GREEN_TOKEN}`, {
+            chatId: chatId,
+            message: message
+        });
+    } catch (err) {
+        console.log("WA ERROR:", err.response?.data || err.message);
+    }
+}
 app.listen(3000, () => console.log("Saber Smart Engine is Live & Stable!"));
 
-ما عم  برد على المسنجر و الانستجرام 
