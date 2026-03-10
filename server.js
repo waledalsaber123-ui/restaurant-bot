@@ -118,7 +118,7 @@ app.post("/webhook", async (req, res) => {
   const chatId = body.senderData?.chatId;
   const author = body.senderData?.sender; // الشخص اللي بعث الرسالة
 
- // 1. التعديل الجديد: الرد فقط على الزبائن (الأفراد) وتجاهل أي إشي ثاني
+// 1. التعديل الجديد: الرد فقط على الزبائن (الأفراد) وتجاهل أي إشي ثاني
 if (!chatId || !chatId.includes("@c.us")) {
     console.log("تجاهل: الرسالة ليست من زبون فردي (جروب أو نظام)");
     return;
