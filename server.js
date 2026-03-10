@@ -36,13 +36,14 @@ app.get("/webhook", (req, res) => {
 /* ================= إرسال رسالة واتساب ================= */
 async function sendWA(chatId, message) {
     try {
-        await axios.post(
-            `${SETTINGS.API_URL}/sendMessage`,
-            { chatId, message },
-            { headers: { "apitoken": SETTINGS.GREEN_TOKEN } }
-        );
+        // التعديل هون: التوكن صار جزء من الرابط وشلنا الـ headers
+        const url = `${SETTINGS.API_URL}/sendMessage/${SETTINGS.GREEN_TOKEN}`;
+        
+        await axios.post(url, { chatId, message });
+        
+        console.log(`WA Message Sent to ${chatId} ✅`);
     } catch (err) {
-        console.log("Error WA:", err.response?.data || err.message);
+        console.log("Error WA Detailed:", err.response?.data || err.message);
     }
 }
 
