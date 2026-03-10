@@ -87,10 +87,10 @@ async function handleUserMessage(chatId, userMessage, platform = "wa") {
         const aiResponse = await axios.post(
             "https://api.openai.com/v1/chat/completions",
             {
-                model: "gpt-4o",
+                model: "gpt-4o-mini",
                 messages: [
                     { role: "system", content: getSystemPrompt() },
-                    ...session.history.slice(-18),
+                    ...session.history.slice(-12),
                     { role: "user", content: userMessage }
                 ],
                 temperature: 0
