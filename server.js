@@ -136,8 +136,8 @@ console.log("MESSAGE FROM USER:", userMessage);
 
   console.log(`وصلت رسالة من زبون (${chatId}): ${userMessage}`);
 
-  try {
-    // نداء OpenAI
+try {
+    // 1. نداء OpenAI
     const aiResponse = await axios.post("https://api.openai.com/v1/chat/completions", {
       model: "gpt-4o",
       messages: [
@@ -150,31 +150,38 @@ console.log("MESSAGE FROM USER:", userMessage);
 
     let reply = aiResponse.data.choices[0].message.content;
 
-    // تهيئة الجلسة إذا مش موجودة
     if (!SESSIONS[chatId]) SESSIONS[chatId] = { history: [] };
 
-    // فحص كود المطبخ
-  
+    // 2. فحص كود المطبخ (شيلنا شرط طول الرسالة المزعج)
     if (reply.includes("[KITCHEN_GO]")) {
-if (userMessage.length < 3 && (userMessage.includes("تم") || userMessage.includes("ok"))) {
       const parts = reply.split("[KITCHEN_GO]");
       const clientMsg = parts[0].trim();
       const kitchenMsg = parts[1].trim();
 
-      // إرسال للمطبخ (جروب)
-      await sendWA(SETTINGS.KITCHEN_GROUP, `🔥 طلب للمطبخ:\n${kitchenMsg}`);
+      // إرسال للمطبخ (استخدمنا اسم دالتك sendwh)
+      await sendwh(SETTINGS.KITCHEN_GROUP, `🔥 طلب جديد للمطعم:\n${kitchenMsg}`);
       
-      // إرسال للزبون (واتساب)
-   await delay(2000 + Math.random() * 3000); // تأخير عشوائي بين 2 إلى 5 ثواني
-      await sendWA(chatId, clientMsg || "أبشر يا غالي، طلبك صار بالمطبخ!");
-    } else {
+      // إرسال للزبون
+      await delay(1500 + Math.random() * 1000);
+      await sendwh(chatId, clientMsg || "أبشر يا غالي، طلبك صار بالمطبخ!");
+    } 
+    // 3. فحص كود الحجز (إذا الزبون بده يحجز موعد)
+    else if (reply.includes("[RESERVATION_GO]")) {
+      const parts = reply.split("[RESERVATION_GO]");
+      const clientMsg = parts[0].trim();
+      const reservationMsg = parts[1].trim();
 
-      // رد طبيعي للزبون
-   await delay(2000 + Math.random() * 3000); // تأخير عشوائي بين 2 إلى 5 ثواني
-      await sendWA(chatId, reply);
+      await sendwh(SETTINGS.KITCHEN_GROUP, `📅 حجز جديد مؤكد:\n${reservationMsg}`);
+      await delay(1500);
+      await sendwh(chatId, clientMsg || "تم تثبيت حجزك يا نشمي!");
+    }
+    // 4. رد طبيعي للمحادثة
+    else {
+      await delay(2000 + Math.random() * 2000);
+      await sendwh(chatId, reply);
     }
 
-    // حفظ الذاكرة
+    // 5. حفظ الذاكرة (History)
     SESSIONS[chatId].history.push(
       { role: "user", content: userMessage },
       { role: "assistant", content: reply }
@@ -183,7 +190,6 @@ if (userMessage.length < 3 && (userMessage.includes("تم") || userMessage.inclu
   } catch (err) {
     console.error("خطأ في OpenAI أو الإرسال:", err.message);
   }
-});
 async function sendWA(chatId, message) {
   try {
     await axios.post(`${SETTINGS.API_URL}/sendMessage/${SETTINGS.GREEN_TOKEN}`, { chatId, message });
