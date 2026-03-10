@@ -5,6 +5,7 @@ import fs from "fs";
 const DATA_FILE = "./sessions_db.json";
 let SESSIONS = {}; 
 
+// تحميل الجلسات
 if (fs.existsSync(DATA_FILE)) {
     try {
         const rawData = fs.readFileSync(DATA_FILE, 'utf8');
@@ -15,7 +16,7 @@ if (fs.existsSync(DATA_FILE)) {
 function saveData() {
     try {
         fs.writeFileSync(DATA_FILE, JSON.stringify(SESSIONS, null, 2));
-    } catch (e) { console.error("Save Error:", e.message); }
+    } catch (e) { console.error("Error saving data:", e.message); }
 }
 
 const app = express();
@@ -30,41 +31,30 @@ const SETTINGS = {
     API_URL: `https://7103.api.greenapi.com/waInstance${process.env.ID_INSTANCE}`
 };
 
-/* ================= 1. نظام البرومبت الموحد ================= */
+/* ================= 1. نظام البرومبت الموحد (صابر) ================= */
 const getSystemPrompt = () => {
     return `أنت "صابر"، المسؤول عن الطلبات في مطعم (صابر جو سناك) في عمان. شخصيتك نشمية، خدومة، وبلهجة أردنية.
-📍 الموقع: عمان - شارع الجامعة الأردنية - طلوع هافانا.
-⏰ الدوام: 2:00 ظهراً - 3:30 فجراً. لا يوجد صالة (استلام أو توصيل فقط).
+📍 **الموقع والدوام**: عمان - شارع الجامعة - طلوع هافانا. من 2:00 ظهراً وحتى 3:30 فجراً.
 
-🍔 **المنيو وعروض التوفير**:
-- ساندويش ديناميت (45 سم): 1 د.أ | صاروخ شاورما (45 سم): 1.5 د.أ | خابور كباب: 2 د.أ.
-- وجبات فردية (زنجر، سكالوب، برجر): 2 د.أ.
-- وجبات عائلية: اقتصادية (7د)، عائلية (10د)، عملاقة (14د).
-- شاورما: وجبة اقتصادية (6د)، وجبة أوفر (9د).
-*(ملاحظة: لتحويل أي ساندويش لوجبة أضف 1 دينار)*.
+🍔 **المنيو الأساسي**:
+- عروض الـ 45 سم (ديناميت 1د، صاروخ شاورما 1.5د، خابور كباب 2د).
+- وجبات فردية 2د | وجبات عائلية (اقتصادية 7د، عائلية 10د، عملاقة 14د).
+- شاورما عائلي: 6د و 9د.
 
-🚚 **التوصيل**: (صويلح 1.5 | الجامعة، الجبيهة، الرشيد 2 | خلدا 2.5 | طبربور 3.5).
+⚠️ **قاعدة إرسال الطلب**:
+بمجرد اكتمال: (الاسم، رقم الهاتف 07xxxxxxxx، العنوان، والطلب)، اعرض ملخص الطلب للزبون وأضف كود [KITCHEN_GO] متبوعاً بنسخة المطبخ.
 
-📅 **نظام الحجز وتجهيز الطلبات**:
-- مسموح للزبون طلب تجهيز الطلب لموعد معين اليوم.
-- المتطلبات: (الاسم، رقم الهاتف، الموعد، الطلب، المنطقة).
-- عند اكتمال البيانات، أرسل [KITCHEN_GO] متبوعاً بالملخص.
-
-⚠️ **قواعد صارمة**:
-1. لا ترسل [KITCHEN_GO] إلا إذا كتب الزبون رقمه (07xxxxxxxx).
-2. بمجرد توفر البيانات، اعرض الملخص متبوعاً بـ [KITCHEN_GO].
-3. الصيغة للمطبخ بعد الكود:
+الصيغة للمطبخ بعد [KITCHEN_GO]:
 🔔 طلب جديد مؤكد!
 - النوع: [توصيل/استلام]
 - الاسم: [الاسم]
 - الرقم: [الرقم]
 - العنوان: [المنطقة]
-- الموعد: [الوقت]
-- الطلب: [التفاصيل]
-- المجموع: [الحساب + التوصيل] دينار`;
+- الطلب: [الأصناف]
+- المجموع: [السعر النهائي] دينار`;
 };
 
-/* ================= 2. دوال الإرسال ================= */
+/* ================= 2. دوال الإرسال الموحدة ================= */
 async function sendMessage(platform, chatId, message) {
     try {
         if (platform === "wa") {
@@ -74,46 +64,55 @@ async function sendMessage(platform, chatId, message) {
                 recipient: { id: chatId }, message: { text: message }
             });
         }
-    } catch (err) { console.error("Send Error:", err.message); }
+    } catch (err) { console.error(`Send Error (${platform}):`, err.message); }
 }
 
-/* ================= 3. العقل المدبر ================= */
+/* ================= 3. العقل المدبر (handleUserMessage) ================= */
 async function handleUserMessage(chatId, userMessage, platform = "wa", senderName = "يا غالي") {
     if (!SESSIONS[chatId]) SESSIONS[chatId] = { history: [], lastKitchenMsg: null };
     const session = SESSIONS[chatId];
+    const msgClean = userMessage.trim().toLowerCase();
 
-    // كشف التأكيد (تم)
-    const isConfirmation = /^(تم|تمام|اوكي|ok|أكد|تاكيد|اعتمد)$/i.test(userMessage.trim());
+    // 1. فحص التأكيد (تم)
+    const isConfirmation = /^(تم|تمام|اوكي|ok|أكد|تاكيد|اعتمد|وصل|حصل)$/i.test(msgClean);
     
     if (isConfirmation && session.lastKitchenMsg) {
+        // إرسال الملخص المخزن مسبقاً للمطبخ
         await sendMessage("wa", SETTINGS.KITCHEN_GROUP, session.lastKitchenMsg);
-        const confirmMsg = `أبشر يا ${senderName}، طلبك اعتمدناه وصار بالمطبخ! نورت صابر جو 🙏`;
+        
+        const confirmMsg = `أبشر يا ${senderName}، طلبك صار عند الشباب بالمطبخ وعالتحضير! نورت صابر جو 🙏`;
         await sendMessage(platform, chatId, confirmMsg);
-        session.lastKitchenMsg = null; // مسح الطلب بعد الإرسال
+        
+        session.lastKitchenMsg = null; // تفريغ "الخزنة" بعد الإرسال
+        session.history = []; // تصفير المحادثة لبداية جديدة
         saveData();
         return;
     }
 
+    // 2. معالجة الـ AI
     try {
         const aiResponse = await axios.post("https://api.openai.com/v1/chat/completions", {
             model: "gpt-4o-mini",
             messages: [
                 { role: "system", content: getSystemPrompt() + `\n العميل: ${senderName}` },
-                ...session.history.slice(-10),
+                ...session.history.slice(-12),
                 { role: "user", content: userMessage }
             ],
-            temperature: 0.5
+            temperature: 0.4
         }, { headers: { Authorization: `Bearer ${SETTINGS.OPENAI_KEY}` } });
 
         let reply = aiResponse.data.choices[0].message.content;
 
         if (reply.includes("[KITCHEN_GO]")) {
             const parts = reply.split("[KITCHEN_GO]");
-            session.lastKitchenMsg = parts[1].trim(); 
-            const finalReply = parts[0].trim() + "\n\nاكتب 'تم' لتأكيد الطلب وإرساله للمطبخ ✅";
+            const clientReply = parts[0].trim();
+            const kitchenContent = parts[1].trim();
+
+            session.lastKitchenMsg = kitchenContent; // حفظ نسخة المطبخ هنا
+            
+            const finalReply = clientReply + "\n\nاكتب 'تم' لتأكيد الطلب وإرساله للمطبخ ✅";
             await sendMessage(platform, chatId, finalReply);
         } else {
-            // إذا غير الطلب وهو في مرحلة "قبل التأكيد" نحدث الذاكرة
             await sendMessage(platform, chatId, reply);
         }
 
@@ -124,40 +123,5 @@ async function handleUserMessage(chatId, userMessage, platform = "wa", senderNam
     } catch (err) { console.error("AI Error:", err.message); }
 }
 
-/* ================= 4. Webhooks ================= */
+/* ================= 4. الويب هوك (Webhooks) ================= */
 app.post("/webhook", async (req, res) => {
-    res.sendStatus(200); // رد فوري
-    const body = req.body;
-
-    // واتساب (GreenAPI)
-    if (body.typeWebhook === "incomingMessageReceived") {
-        const chatId = body.senderData?.chatId;
-        const senderName = body.senderData?.senderName || "يا غالي";
-        const messageData = body.messageData;
-        
-        let text = "";
-        if (messageData?.typeMessage === "textMessage") text = messageData.textMessageData.textMessage;
-        else if (messageData?.typeMessage === "quotedMessage") text = messageData.quotedMessageData.text;
-
-        if (chatId && !chatId.endsWith("@g.us") && text) {
-            handleUserMessage(chatId, text, "wa", senderName);
-        }
-    } 
-    // فيسبوك ومسنجر
-    else if (body.object === "page") {
-        const messaging = body.entry?.[0]?.messaging?.[0];
-        if (messaging?.message?.text) {
-            handleUserMessage(messaging.sender.id, messaging.message.text, "facebook", "يا غالي");
-        }
-    }
-});
-
-app.get("/webhook", (req, res) => {
-    const mode = req.query["hub.mode"];
-    const token = req.query["hub.verify_token"];
-    const challenge = req.query["hub.challenge"];
-    if (mode && token === "SaberJo_Secret_2026") res.status(200).send(challenge);
-    else res.sendStatus(403);
-});
-
-app.listen(3000, () => console.log("Saber Engine Running Securely!"));
