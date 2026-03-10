@@ -21,7 +21,6 @@ app.get("/webhook", (req, res) => {
   }
 });
 const SETTINGS = {
-const SETTINGS = {
   OPENAI_KEY: process.env.OPENAI_KEY,
   GREEN_TOKEN: process.env.GREEN_TOKEN,
   ID_INSTANCE: process.env.ID_INSTANCE,
