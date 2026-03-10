@@ -100,7 +100,7 @@ async function handleUserMessage(chatId, userMessage, platform = "wa") {
                 model: "gpt-4o-mini",
                 messages: [
                     { role: "system", content: getSystemPrompt() },
-                    ...session.history.slice(-12),
+                    ...session.history.slice(-6),
                     { role: "user", content: userMessage }
                 ],
                 temperature: 0
