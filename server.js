@@ -150,7 +150,8 @@ async function handleUserMessage(chatId, userMessage, platform = "wa") {
         { role: "assistant", content: reply }
     );
 
-} catch (err) {
+} 
+catch (err) {
     console.log("Error OpenAI:", err.message);
     await sendMsg(platform, chatId, "أبشر يا غالي، بس ارجع ابعث رسالتك كمان مرة، كان في ضغط عالخط 🙏");
 }
