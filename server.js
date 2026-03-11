@@ -139,10 +139,7 @@ async function handleUserMessage(chatId, userMessage, platform = "wa") {
             { role: "assistant", content: reply }
         );
 
-    } catch (err) {
-        console.log("Error OpenAI:", err.message);
-        await sendMsg(platform, chatId, "أبشر يا غالي، بس ارجع ابعث رسالتك كمان مرة، كان في ضغط عالخط 🙏");
-    }
+ 
 
     /* حفظ المحادثة */
     session.history.push(
