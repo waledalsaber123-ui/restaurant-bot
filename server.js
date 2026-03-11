@@ -11,8 +11,7 @@ const SETTINGS = {
     ID_INSTANCE:   process.env.ID_INSTANCE,
     PAGE_TOKEN:    process.env.PAGE_TOKEN,
     KITCHEN_GROUP: "120363407952234395@g.us",
-API_URL: `https://api.green-api.com/waInstance${process.env.ID_INSTANCE}`
-};
+API_URL: `https://7103.api.greenapi.com/waInstance${process.env.ID_INSTANCE}`};
 
 const SESSIONS = {};
 /* ================= نظام التنوع لمنع الحظر ================= */
