@@ -133,30 +133,21 @@ async function handleUserMessage(chatId, userMessage, platform = "wa") {
             await sendMsg(platform, chatId, finalReply);
         }
 
-        /* 4. حفظ المحادثة في التاريخ */
-        session.history.push(
-            { role: "user", content: userMessage },
-            { role: "assistant", content: reply }
-        );
+       /* 4. حفظ المحادثة */
+session.history.push(
+    { role: "user", content: userMessage },
+    { role: "assistant", content: reply }
+);
 
- 
+} catch (err) {
+    console.log("Error OpenAI:", err.response?.data || err.message);
 
-    /* حفظ المحادثة */
-    session.history.push(
-        { role: "user", content: userMessage },
-        { role: "assistant", content: reply }
+    await sendMsg(
+        platform,
+        chatId,
+        "أبشر يا غالي، صار ضغط بسيط بالنظام. ابعث رسالتك مرة ثانية 🙏"
     );
-
-} 
-catch (err) {
-    console.log("Error OpenAI:", err.message);
-    await sendMsg(platform, chatId, "أبشر يا غالي، بس ارجع ابعث رسالتك كمان مرة، كان في ضغط عالخط 🙏");
 }
-        /* --- حفظ المحادثة في الذاكرة --- */
-        session.history.push(
-            { role: "user",      content: userMessage },
-            { role: "assistant", content: reply }
-        );
 
 /* ================= استقبال Webhook (POST) ================= */
 app.post("/webhook", async (req, res) => {
@@ -177,7 +168,8 @@ app.post("/webhook", async (req, res) => {
         const text   =
             body.messageData?.textMessageData?.textMessage ||
             body.messageData?.extendedTextMessageData?.text;
-
+if (body.senderData?.sender === body.instanceData?.wid) return;
+        console.log("Incoming message:", chatId, text);
         if (chatId && !chatId.endsWith("@g.us") && text) {
             await handleUserMessage(chatId, text, "wa");
         }
