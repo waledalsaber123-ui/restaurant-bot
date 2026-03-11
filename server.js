@@ -49,7 +49,7 @@ app.get("/webhook", (req, res) => {
 /* ================= إرسال رسالة واتساب ================= */
 async function sendWA(chatId, message) {
     try {
-        const baseUrl = `https://api.green-api.com/waInstance${SETTINGS.ID_INSTANCE}`;
+        const baseUrl = `https://7103.api.green-api.com/waInstance${SETTINGS.ID_INSTANCE}`;
         const token = SETTINGS.GREEN_TOKEN;
         
         // 1. إرسال حالة "يكتب الآن" (تخفي من رادار واتساب)
