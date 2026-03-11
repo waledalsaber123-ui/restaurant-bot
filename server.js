@@ -15,6 +15,11 @@ API_URL: `https://api.green-api.com/waInstance${process.env.ID_INSTANCE}`
 };
 
 const SESSIONS = {};
+/* ================= نظام التنوع لمنع الحظر ================= */
+const getRandomSuffix = () => {
+    const suffixes = [" 🙏", " يا غالي..", " نورتنا!", " أبشر بالخير.", " تفضل يا نشمي..", " 🙏🌹", " غالي والطلب رخيص"];
+    return suffixes[Math.floor(Math.random() * suffixes.length)];
+};
 /* ================= دالة التأخير الذكي (للحماية من الحظر) ================= */
 const delay = (ms) => new Promise(res => setTimeout(res, ms));
 
@@ -45,10 +50,20 @@ app.get("/webhook", (req, res) => {
 /* ================= إرسال رسالة واتساب ================= */
 async function sendWA(chatId, message) {
     try {
-        // التعديل هون: التوكن صار جزء من الرابط وشلنا الـ headers
-        const url = `${SETTINGS.API_URL}/sendMessage/${SETTINGS.GREEN_TOKEN}`;
+        const baseUrl = `https://api.green-api.com/waInstance${SETTINGS.ID_INSTANCE}`;
+        const token = SETTINGS.GREEN_TOKEN;
         
-        await axios.post(url, { chatId, message });
+        // 1. إرسال حالة "يكتب الآن" (تخفي من رادار واتساب)
+        await axios.post(`${baseUrl}/setPresence/${token}`, { chatId, presence: 'composing' });
+        
+        // 2. إضافة لاحقة عشوائية عشان النص ما يتكرر حرفياً لكل الناس
+        const finalMessage = message + getRandomSuffix();
+        
+        // 3. إرسال الرسالة الفعلية
+        await axios.post(`${baseUrl}/sendMessage/${token}`, { 
+            chatId, 
+            message: finalMessage 
+        });
         
         console.log(`WA Message Sent to ${chatId} ✅`);
     } catch (err) {
@@ -153,7 +168,7 @@ session.history.push(
 app.post("/webhook", async (req, res) => {
     const body = req.body;
 
-    /* 1. رسائل فيسبوك / إنستغرام */
+    // 1. رسائل فيسبوك / إنستغرام
     if (body.object === "page" || body.object === "instagram") {
         const messaging = body.entry?.[0]?.messaging?.[0];
         if (messaging?.message?.text) {
@@ -162,15 +177,25 @@ app.post("/webhook", async (req, res) => {
         return res.sendStatus(200);
     }
 
-    /* 2. رسائل واتساب (GreenAPI) */
+    // 2. رسائل واتساب (GreenAPI)
     if (body.typeWebhook === "incomingMessageReceived") {
         const chatId = body.senderData?.chatId;
-        const text   =
-            body.messageData?.textMessageData?.textMessage ||
-            body.messageData?.extendedTextMessageData?.text;
-if (body.senderData?.sender === body.instanceData?.wid) return;
-        console.log("Incoming message:", chatId, text);
+        const text = body.messageData?.textMessageData?.textMessage ||
+                     body.messageData?.extendedTextMessageData?.text;
+
+        // --- فلتر الزمن: تجاهل أي رسالة قديمة (أكثر من 3 دقائق) ---
+        const messageTimestamp = body.timestamp; 
+        const currentTimestamp = Math.floor(Date.now() / 1000); 
+        if (currentTimestamp - messageTimestamp > 180) {
+            console.log(`⚠️ تخطي رسالة قديمة من ${chatId}`);
+            return res.sendStatus(200);
+        }
+        // ------------------------------------------------------
+
+        if (body.senderData?.sender === body.instanceData?.wid) return;
+        
         if (chatId && !chatId.endsWith("@g.us") && text) {
+            console.log("Incoming message:", chatId, text);
             await handleUserMessage(chatId, text, "wa");
         }
         return res.sendStatus(200);
@@ -178,7 +203,6 @@ if (body.senderData?.sender === body.instanceData?.wid) return;
 
     res.sendStatus(200);
 });
-
 /* ================= البرومبت الموحد ================= */
 const getSystemPrompt = () => `
 أنت "صابر"، المسؤول عن الطلبات في مطعم (صابر جو سناك) في عمان. شخصيتك نشمية، خدومة، وبتحكي بلهجة أردنية.
