@@ -148,7 +148,7 @@ session.history.push(
         "أبشر يا غالي، صار ضغط بسيط بالنظام. ابعث رسالتك مرة ثانية 🙏"
     );
 }
-
+}
 /* ================= استقبال Webhook (POST) ================= */
 app.post("/webhook", async (req, res) => {
     const body = req.body;
