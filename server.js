@@ -7,7 +7,7 @@ import { sendFB } from "./facebook.js";
 const app = express();
 app.use(express.json());
 
-// دالة ذكية تحدد وين تبعث الرد (واتساب ولا فيسبوك)
+/* ================= دالة التوجيه الذكية (واتساب أو فيسبوك) ================= */
 async function sendMsg(platform, chatId, text) {
     if (platform === "facebook") {
         await sendFB(chatId, text);
@@ -35,9 +35,11 @@ app.get("/webhook", (req, res) => {
 app.post("/webhook", async (req, res) => {
     const body = req.body;
 
+    // ---------------------------------------------------------
     // 1. قسم معالجة رسائل (فيسبوك / إنستغرام)
+    // ---------------------------------------------------------
     if (body.object === "page" || body.object === "instagram") {
-        res.sendStatus(200); // الرد السريع لفيسبوك عشان ما يعطي Error
+        res.sendStatus(200); // الرد السريع لفيسبوك لتجنب الأخطاء (Timeout)
         
         const messaging = body.entry?.[0]?.messaging?.[0];
         if (messaging?.message?.text) {
@@ -46,11 +48,15 @@ app.post("/webhook", async (req, res) => {
             console.log("Incoming FB/Insta message:", chatId, text);
 
             try {
+                // إرسال النص للذكاء الاصطناعي
                 const aiResponse = await runAI(text);
+                
+                // إرسال الرد للزبون
                 if(aiResponse.reply) {
                     await sendMsg("facebook", chatId, aiResponse.reply);
                 }
-                // إذا اكتمل الطلب، نبعثه لجروب المطبخ على الواتساب
+                
+                // إذا اكتمل الطلب، إرساله لجروب المطبخ على الواتساب
                 if(aiResponse.kitchenOrder && aiResponse.kitchenOrder.trim() !== "") {
                     await sendMsg("wa", CONFIG.GROUP_ID, `[KITCHEN_GO]\n${aiResponse.kitchenOrder}`);
                 }
@@ -61,36 +67,63 @@ app.post("/webhook", async (req, res) => {
         return;
     }
 
+    // ---------------------------------------------------------
     // 2. قسم معالجة رسائل (واتساب - GreenAPI)
+    // ---------------------------------------------------------
     if (body.typeWebhook === "incomingMessageReceived") {
         const chatId = body.senderData?.chatId;
+        
+        // فحص نوع الرسالة (صورة، صوت، فيديو، أو ملف)
+        const typeMessage = body.messageData?.typeMessage;
+        const isMediaMessage = typeMessage === "imageMessage" || 
+                               typeMessage === "audioMessage" ||
+                               typeMessage === "videoMessage" ||
+                               typeMessage === "documentMessage";
+
         const text = body.messageData?.textMessageData?.textMessage ||
                      body.messageData?.extendedTextMessageData?.text;
 
         const messageTimestamp = body.timestamp; 
         const currentTimestamp = Math.floor(Date.now() / 1000); 
         
+        // تجاهل الرسائل القديمة (أكثر من 3 دقائق)
         if (currentTimestamp - messageTimestamp > 180) {
             console.log(`⚠️ تخطي رسالة قديمة من ${chatId}`);
             return res.sendStatus(200);
         }
 
-        if (body.senderData?.sender === body.instanceData?.wid) return res.sendStatus(200);
+        // تجاهل رسائل البوت لنفسه
+        if (body.senderData?.sender === body.instanceData?.wid) {
+            return res.sendStatus(200);
+        }
         
-        if (chatId && !chatId.endsWith("@g.us") && text) {
-            console.log("Incoming WA message:", chatId, text);
-            res.sendStatus(200); // الرد السريع لجرين إي بي آي
+        // معالجة الرسائل القادمة من الأفراد فقط (وليس الجروبات)
+        if (chatId && !chatId.endsWith("@g.us")) {
+            res.sendStatus(200); // الرد السريع لـ GreenAPI
 
-            try {
-                 const aiResponse = await runAI(text);
-                 if(aiResponse.reply) {
-                     await sendMsg("wa", chatId, aiResponse.reply);
-                 }
-                 if(aiResponse.kitchenOrder && aiResponse.kitchenOrder.trim() !== "") {
-                     await sendMsg("wa", CONFIG.GROUP_ID, `[KITCHEN_GO]\n${aiResponse.kitchenOrder}`);
-                 }
-            } catch (error) {
-                console.error("Error processing WA message:", error);
+            // 🛑 إذا أرسل الزبون صورة أو فويس نوت (الرفض اللطيف لتوفير التوكنز):
+            if (isMediaMessage) {
+                console.log(`Media received from ${chatId}, sending polite rejection.`);
+                await sendMsg("wa", chatId, "عذراً يا غالي، لضمان دقة طلبك أنا حالياً بستقبل الطلبات المكتوبة فقط. يا ريت تكتبلي طلبك أو استفسارك كتابة ومن عيوني بكمل معك 🙏");
+                return; // إيقاف التنفيذ هنا
+            }
+
+            // ✅ إذا كانت الرسالة نصية عادية:
+            if (text) {
+                console.log("Incoming WA message:", chatId, text);
+                try {
+                     const aiResponse = await runAI(text);
+                     
+                     if(aiResponse.reply) {
+                         await sendMsg("wa", chatId, aiResponse.reply);
+                     }
+                     
+                     if(aiResponse.kitchenOrder && aiResponse.kitchenOrder.trim() !== "") {
+                         await sendMsg("wa", CONFIG.GROUP_ID, `[KITCHEN_GO]\n${aiResponse.kitchenOrder}`);
+                     }
+                } catch (error) {
+                    console.error("Error processing WA message:", error);
+                }
             }
             return;
         }
@@ -99,6 +132,7 @@ app.post("/webhook", async (req, res) => {
     res.sendStatus(200);
 });
 
+/* ================= تشغيل السيرفر ================= */
 app.listen(CONFIG.PORT, () => {
     console.log(`🚀 Saber Smart Engine is Live on port ${CONFIG.PORT}!`);
 });
