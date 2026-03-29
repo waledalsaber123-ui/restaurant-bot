@@ -13,25 +13,35 @@ async function processQueue() {
     while (messageQueue.length > 0) {
         const { chatId, text, resolve, reject } = messageQueue.shift();
         try {
-            // الرابط المباشر من الـ Logs تبعتك
-            const idInstance = "7103566520"; 
-            const apiToken = CONFIG.GREEN_TOKEN.trim(); // تنظيف التوكن من أي فراغات
-            const baseUrl = `https://7103.api.greenapi.com/waInstance${idInstance}`;
+            const idInstance = String(CONFIG.ID_INSTANCE).trim();
+            const apiToken = String(CONFIG.GREEN_TOKEN).trim();
+            
+            // ✅ الرابط المباشر للإرسال فقط - هذا الرابط لا يعطي 403 إذا التوكن صح
+            const url = `https://7103.api.greenapi.com/waInstance${idInstance}/sendMessage/${apiToken}`;
 
-            // محاولة إرسال الرسالة فقط (بدون Presence لتجاوز خطأ 403 مؤقتاً)
-            const response = await axios.post(`${baseUrl}/sendMessage/${apiToken}`, {
+            console.log(`🚀 Sending Message to ${chatId}...`);
+
+            const response = await axios.post(url, {
                 chatId: chatId,
                 message: text
             });
 
-            console.log(`✅ WhatsApp Sent! ID: ${response.data.idMessage}`);
-            resolve();
+            if (response.data && response.data.idMessage) {
+                console.log(`✅ SUCCESS: Message Sent!`);
+                resolve();
+            }
         } catch (err) {
-            console.error("❌ WhatsApp Error Status:", err.response?.status);
-            console.error("❌ Details:", err.response?.data || err.message);
+            console.error("❌ WHATSAPP ERROR:");
+            // طباعة نص الخطأ القادم من Green-API لمعرفة السبب بدقة
+            if (err.response && err.response.data) {
+                console.error("Data:", err.response.data);
+            } else {
+                console.error("Message:", err.message);
+            }
             reject(err);
         }
-        await delay(3000); // تأخير 3 ثواني بين الرسائل للأمان
+        // تأخير بسيط 3 ثواني بين الرسائل
+        await delay(3000);
     }
     isProcessingQueue = false;
 }
