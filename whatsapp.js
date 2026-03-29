@@ -1,23 +1,17 @@
 import axios from "axios";
 import { CONFIG } from "./config.js";
 
-// نظام الطابور لمنع الحظر
 const messageQueue = [];
 let isProcessingQueue = false;
 
 const delay = (ms) => new Promise(res => setTimeout(res, ms));
 
+// دالة لمحاكاة وقت الكتابة بناءً على طول النص
 const waitTyping = async (text) => {
     if(!text) return;
-    const typingTime = (text.length * 50) + (Math.random() * 1000 + 1000);
-    const finalWait = Math.min(typingTime, 6000);
-    await delay(finalWait);
-};
-
-const getRandomSuffixSafe = () => {
-    if (Math.random() > 0.4) return ""; 
-    const suffixes = [" 🙏", " يا غالي..", " نورتنا!", " أبشر بالخير.", " تفضل يا نشمي.."];
-    return suffixes[Math.floor(Math.random() * suffixes.length)];
+    // 50 ملي ثانية لكل حرف + ثانية عشوائية
+    const typingTime = (text.length * 50) + (Math.random() * 1000 + 500); 
+    await delay(Math.min(typingTime, 5000)); // كحد أقصى 5 ثوانٍ
 };
 
 async function processQueue() {
@@ -25,39 +19,38 @@ async function processQueue() {
     isProcessingQueue = true;
 
     while (messageQueue.length > 0) {
-        const task = messageQueue.shift();
+        const { chatId, text, resolve, reject } = messageQueue.shift();
         try {
-            await task();
+            const baseUrl = `https://7103.api.greenapi.com/waInstance${CONFIG.ID_INSTANCE}`;
+            
+            // 1. إظهار أن البوت "متصل"
+            await axios.post(`${baseUrl}/setPresence/${CONFIG.GREEN_TOKEN}`, { chatId, presence: 'online' });
+            
+            // 2. إظهار "جاري الكتابة"
+            await axios.post(`${baseUrl}/setPresence/${CONFIG.GREEN_TOKEN}`, { chatId, presence: 'composing' });
+            
+            // 3. انتظار وقت الكتابة
+            await waitTyping(text);
+
+            // 4. إرسال الرسالة
+            await axios.post(`${baseUrl}/sendMessage/${CONFIG.GREEN_TOKEN}`, { chatId, message: text });
+
+            console.log(`✅ WA Sent: ${chatId}`);
+            resolve();
         } catch (err) {
-            console.log("خطأ في الطابور:", err.message);
+            console.error("❌ Error WA:", err.message);
+            reject(err);
         }
-        const chatSwitchDelay = Math.floor(Math.random() * 2000) + 1000;
-        await delay(chatSwitchDelay);
+        
+        // فاصل زمني بين كل محادثة وأخرى (بين 2 إلى 4 ثوانٍ)
+        await delay(Math.floor(Math.random() * 2000) + 2000);
     }
     isProcessingQueue = false;
 }
 
 export function sendMessage(chatId, text) {
     return new Promise((resolve, reject) => {
-        messageQueue.push(async () => {
-            try {
-                const urlPresence = `https://7103.api.greenapi.com/waInstance${CONFIG.ID_INSTANCE}/setPresence/${CONFIG.GREEN_TOKEN}`;
-                const urlMessage = `https://7103.api.greenapi.com/waInstance${CONFIG.ID_INSTANCE}/sendMessage/${CONFIG.GREEN_TOKEN}`;
-                
-                // محاكاة يكتب الآن
-                await axios.post(urlPresence, { chatId, presence: 'composing' });
-                await waitTyping(text);
-                
-                const finalMessage = text + getRandomSuffixSafe();
-                await axios.post(urlMessage, { chatId, message: finalMessage });
-                
-                console.log(`WA Message Sent to ${chatId} ✅`);
-                resolve();
-            } catch (err) {
-                console.log("Error WA:", err.message);
-                reject(err);
-            }
-        });
+        messageQueue.push({ chatId, text, resolve, reject });
         processQueue();
     });
 }
