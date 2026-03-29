@@ -1,27 +1,39 @@
 import axios from "axios";
 import { CONFIG } from "./config.js";
-import { systemPrompt } from "./prompt.js";
+import { systemPrompt } from "./prompt.js"; // استيراد البرومبت من الملف مباشرة
 
+// ذاكرة ذكية لكل زبون (بتحفظ آخر 6 رسائل عشان التوفير والذكاء)
 const chatMemory = {};
 
 export async function runAI(chatId, message) {
     const id = chatId || "default";
+
+    // 1. إدارة الذاكرة
     if (!chatMemory[id]) chatMemory[id] = [];
-    
     chatMemory[id].push({ role: "user", content: message });
-    if (chatMemory[id].length > 4) chatMemory[id].shift();
+    
+    // الاحتفاظ بآخر 6 رسائل فقط (عشان نوفر "كوكيز" ونضل بالcontext الصحيح)
+    if (chatMemory[id].length > 6) chatMemory[id].shift();
+
+    const currentTime = new Date().toLocaleString("en-US", {
+        timeZone: "Asia/Amman",
+        hour: '2-digit', minute: '2-digit', hour12: true
+    });
 
     try {
-        console.log("🚀 Calling OpenAI..."); // للفحص
+        console.log(`🚀 AI Processing for: ${id}`);
 
         const res = await axios.post(
             "https://api.openai.com/v1/chat/completions",
             {
-                model: "gpt-4o-mini",
-                temperature: 0.8,
+                model: "gpt-4o-mini", // أسرع وأرخص موديل بيفهم اللهجة الأردنية
+                temperature: 0.8,    // درجة "الدردشة" عشان ينوع بكلامه وما يكرر نفسه
                 response_format: { type: "json_object" },
                 messages: [
-                    { role: "system", content: systemPrompt },
+                    { 
+                        role: "system", 
+                        content: `${systemPrompt}\n\n[وقت عمان الآن: ${currentTime}]\n[تنبيه: نوع بجملك، وتذكر تفاصيل طلب الزبون ومنطقته].` 
+                    },
                     ...chatMemory[id]
                 ]
             },
@@ -34,17 +46,19 @@ export async function runAI(chatId, message) {
         );
 
         const aiResult = JSON.parse(res.data.choices[0].message.content);
+        
+        // حفظ رد البوت في الذاكرة عشان المحادثة تضل متصلة
         chatMemory[id].push({ role: "assistant", content: aiResult.reply });
         
-        return aiResult;
+        return {
+            reply: aiResult.reply || "تفضل يا غالي، كيف بقدر أخدمك؟",
+            kitchenOrder: aiResult.kitchenOrder || "",
+            totalPrice: aiResult.totalPrice || 0
+        };
 
     } catch (error) {
-        // 🔥 هذا السطر سيطبع الخطأ الحقيقي في Render Logs
-        console.error("❌ AI ERROR DETAIL:", error.response?.data || error.message);
+        // طباعة الخطأ الحقيقي في Render Logs لمعرفة السبب (رصيد، مفتاح، الخ)
+        console.error("❌ AI ERROR:", error.response?.data || error.message);
         
         return { 
-            reply: "ابشر يا نشمي، بس ثواني خليني اشيكلك ع الطلب.. شو بدك نزيد عليه؟",
-            totalPrice: 0 
-        };
-    }
-}
+            reply: "أبشر يا نشمي، بس ثواني خليني أشيكلك
