@@ -6,12 +6,6 @@ let isProcessingQueue = false;
 
 const delay = (ms) => new Promise(res => setTimeout(res, ms));
 
-const waitTyping = async (text) => {
-    if(!text) return;
-    const typingTime = (text.length * 50) + (Math.random() * 1000 + 1000);
-    await delay(Math.min(typingTime, 5000));
-};
-
 async function processQueue() {
     if (isProcessingQueue || messageQueue.length === 0) return;
     isProcessingQueue = true;
@@ -19,26 +13,25 @@ async function processQueue() {
     while (messageQueue.length > 0) {
         const { chatId, text, resolve, reject } = messageQueue.shift();
         try {
-            // تصحيح الرابط ليتوافق مع طريقة Green-API الصحيحة وتجنب 403
-            const baseUrl = CONFIG.API_URL;
-            const token = CONFIG.GREEN_TOKEN;
+            // الرابط المباشر من الـ Logs تبعتك
+            const idInstance = "7103566520"; 
+            const apiToken = CONFIG.GREEN_TOKEN.trim(); // تنظيف التوكن من أي فراغات
+            const baseUrl = `https://7103.api.greenapi.com/waInstance${idInstance}`;
 
-            // 1. إظهار متصل + جاري الكتابة
-            await axios.post(`${baseUrl}/setPresence/${token}`, { chatId, presence: 'online' });
-            await axios.post(`${baseUrl}/setPresence/${token}`, { chatId, presence: 'composing' });
-            
-            await waitTyping(text);
+            // محاولة إرسال الرسالة فقط (بدون Presence لتجاوز خطأ 403 مؤقتاً)
+            const response = await axios.post(`${baseUrl}/sendMessage/${apiToken}`, {
+                chatId: chatId,
+                message: text
+            });
 
-            // 2. إرسال الرسالة
-            await axios.post(`${baseUrl}/sendMessage/${token}`, { chatId, message: text });
-
-            console.log(`✅ WhatsApp Sent to: ${chatId}`);
+            console.log(`✅ WhatsApp Sent! ID: ${response.data.idMessage}`);
             resolve();
         } catch (err) {
-            console.error("❌ WhatsApp Error:", err.response?.data || err.message);
+            console.error("❌ WhatsApp Error Status:", err.response?.status);
+            console.error("❌ Details:", err.response?.data || err.message);
             reject(err);
         }
-        await delay(Math.floor(Math.random() * 2000) + 2000);
+        await delay(3000); // تأخير 3 ثواني بين الرسائل للأمان
     }
     isProcessingQueue = false;
 }
