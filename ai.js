@@ -2,50 +2,49 @@ import axios from "axios";
 import { CONFIG } from "./config.js";
 import { systemPrompt } from "./prompt.js";
 
-// الذاكرة لازم تكون برة الدالة عشان تضل محفوظة
 const chatMemory = {};
 
 export async function runAI(chatId, message) {
-    // 1. إدارة الذاكرة (بنتذكر آخر 4 رسائل بس عشان نوفر كوكيز)
-    if (!chatMemory[chatId]) chatMemory[chatId] = [];
-    chatMemory[chatId].push({ role: "user", content: message });
-    if (chatMemory[chatId].length > 4) chatMemory[chatId].shift();
+    // التأكد من وجود chatId
+    const id = chatId || "default";
+    if (!chatMemory[id]) chatMemory[id] = [];
+    
+    chatMemory[id].push({ role: "user", content: message });
+    if (chatMemory[id].length > 6) chatMemory[id].shift();
 
     try {
+        console.log("🚀 Calling OpenAI for:", id); // للفحص في Logs
+
         const res = await axios.post(
             "https://api.openai.com/v1/chat/completions",
             {
-                model: "gpt-4o-mini", // أوفر وأسرع موديل
-                temperature: 0.8, // عشان ينوع بكلامه وما يكرر "يا غالي ابشر"
+                model: "gpt-4o-mini",
+                temperature: 0.8,
                 response_format: { type: "json_object" },
                 messages: [
-                    { 
-                        role: "system", 
-                        content: systemPrompt + "\nملاحظة: خليك بياع شاطر، نوع بجملك، وتذكر شو حكى الزبون قبل شوي." 
-                    },
-                    ...chatMemory[chatId]
+                    { role: "system", content: systemPrompt },
+                    ...chatMemory[id]
                 ]
             },
             {
                 headers: {
-                    Authorization: `Bearer ${CONFIG.OPENAI_KEY}`,
+                    Authorization: `Bearer ${CONFIG.OPENAI_KEY.trim()}`,
                     "Content-Type": "application/json"
                 }
             }
         );
 
         const aiResult = JSON.parse(res.data.choices[0].message.content);
-        
-        // حفظ رد البوت في الذاكرة عشان ما ينسى
-        chatMemory[chatId].push({ role: "assistant", content: aiResult.reply });
+        chatMemory[id].push({ role: "assistant", content: aiResult.reply });
         
         return aiResult;
 
     } catch (error) {
-        console.error("AI Error Details:", error.response?.data || error.message);
-        // الرد هاد بيطلع بس لما السيرفر يوقع
+        // 🔥 هاد السطر رح يحكيلنا وين الوجع بالظبط في Render Logs
+        console.error("❌ AI FATAL ERROR:", error.response?.data || error.message);
+        
         return { 
-            reply: "من عيوني يا غالي، بس ثواني خليني أشيكلك ع الطلب وأرجعلك.. شو كنت حابب تضيف كمان؟",
+            reply: "ابشر يا نشمي، بس ثواني خليني اشيكلك ع الطلب.. شو بدك نزيد عليه؟",
             totalPrice: 0 
         };
     }
