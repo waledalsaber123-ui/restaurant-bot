@@ -5,15 +5,14 @@ import { systemPrompt } from "./prompt.js";
 const chatMemory = {};
 
 export async function runAI(chatId, message) {
-    // التأكد من وجود chatId
     const id = chatId || "default";
     if (!chatMemory[id]) chatMemory[id] = [];
     
     chatMemory[id].push({ role: "user", content: message });
-    if (chatMemory[id].length > 6) chatMemory[id].shift();
+    if (chatMemory[id].length > 4) chatMemory[id].shift();
 
     try {
-        console.log("🚀 Calling OpenAI for:", id); // للفحص في Logs
+        console.log("🚀 Calling OpenAI..."); // للفحص
 
         const res = await axios.post(
             "https://api.openai.com/v1/chat/completions",
@@ -40,8 +39,8 @@ export async function runAI(chatId, message) {
         return aiResult;
 
     } catch (error) {
-        // 🔥 هاد السطر رح يحكيلنا وين الوجع بالظبط في Render Logs
-        console.error("❌ AI FATAL ERROR:", error.response?.data || error.message);
+        // 🔥 هذا السطر سيطبع الخطأ الحقيقي في Render Logs
+        console.error("❌ AI ERROR DETAIL:", error.response?.data || error.message);
         
         return { 
             reply: "ابشر يا نشمي، بس ثواني خليني اشيكلك ع الطلب.. شو بدك نزيد عليه؟",
