@@ -2,41 +2,51 @@ import axios from "axios";
 import { CONFIG } from "./config.js";
 import { systemPrompt } from "./prompt.js";
 
-// مخزن الذاكرة المؤقت (بينمسح بس يطفي السيرفر - ممتاز للتوفير)
+// الذاكرة لازم تكون برة الدالة عشان تضل محفوظة
 const chatMemory = {};
 
 export async function runAI(chatId, message) {
-    // 1. إدارة الذاكرة
+    // 1. إدارة الذاكرة (بنتذكر آخر 4 رسائل بس عشان نوفر كوكيز)
     if (!chatMemory[chatId]) chatMemory[chatId] = [];
     chatMemory[chatId].push({ role: "user", content: message });
-    
-    // الاحتفاظ بآخر 6 رسائل فقط لتوفير "الكوكيز"
-    if (chatMemory[chatId].length > 6) chatMemory[chatId].shift();
-
-    const currentTime = new Date().toLocaleString("en-US", { timeZone: "Asia/Amman", hour: '2-digit', minute: '2-digit' });
+    if (chatMemory[chatId].length > 4) chatMemory[chatId].shift();
 
     try {
         const res = await axios.post(
             "https://api.openai.com/v1/chat/completions",
             {
-                model: "gpt-4o-mini", // موديل سريع ورخيص جداً
-                temperature: 0.7, // عشان "يشكل" بالكلام وما يضل يكرر نفسه
+                model: "gpt-4o-mini", // أوفر وأسرع موديل
+                temperature: 0.8, // عشان ينوع بكلامه وما يكرر "يا غالي ابشر"
                 response_format: { type: "json_object" },
                 messages: [
-                    { role: "system", content: `${systemPrompt}\nالوقت: ${currentTime}` },
-                    ...chatMemory[chatId] // إرسال سياق المحادثة
+                    { 
+                        role: "system", 
+                        content: systemPrompt + "\nملاحظة: خليك بياع شاطر، نوع بجملك، وتذكر شو حكى الزبون قبل شوي." 
+                    },
+                    ...chatMemory[chatId]
                 ]
             },
-            { headers: { Authorization: `Bearer ${CONFIG.OPENAI_KEY}` } }
+            {
+                headers: {
+                    Authorization: `Bearer ${CONFIG.OPENAI_KEY}`,
+                    "Content-Type": "application/json"
+                }
+            }
         );
 
         const aiResult = JSON.parse(res.data.choices[0].message.content);
         
-        // حفظ رد البوت في الذاكرة
+        // حفظ رد البوت في الذاكرة عشان ما ينسى
         chatMemory[chatId].push({ role: "assistant", content: aiResult.reply });
-
+        
         return aiResult;
+
     } catch (error) {
-        return { reply: "يا غالي ابشر، ثواني وبكون معك." };
+        console.error("AI Error Details:", error.response?.data || error.message);
+        // الرد هاد بيطلع بس لما السيرفر يوقع
+        return { 
+            reply: "من عيوني يا غالي، بس ثواني خليني أشيكلك ع الطلب وأرجعلك.. شو كنت حابب تضيف كمان؟",
+            totalPrice: 0 
+        };
     }
 }
