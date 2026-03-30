@@ -1,138 +1,95 @@
 import express from "express";
-import { CONFIG } from "./config.js";
-import { runAI } from "./ai.js";
-import { sendMessage as sendWA } from "./whatsapp.js";
-import { sendFB } from "./facebook.js";
+import bodyParser from "body-parser";
+import { sendMessage } from "./whatsapp.js";
 
 const app = express();
-app.use(express.json());
+app.use(bodyParser.json());
 
-/* ================= دالة التوجيه الذكية (واتساب أو فيسبوك) ================= */
-async function sendMsg(platform, chatId, text) {
-    if (platform === "facebook") {
-        await sendFB(chatId, text);
-    } else {
-        await sendWA(chatId, text);
+const userState = new Map();
+
+async function handleMessage(chatId, text) {
+  const msg = String(text || "").trim();
+
+  if (!userState.has(chatId)) {
+    userState.set(chatId, "MENU");
+    return sendMessage(
+      chatId,
+`أهلًا 👋
+
+1️⃣ للطلب السريع
+2️⃣ للاستفسار
+3️⃣ للشكاوى
+
+اكتب الرقم المطلوب`
+    );
+  }
+
+  const state = userState.get(chatId);
+
+  if (state === "MENU") {
+    if (msg === "1") {
+      return sendMessage(
+        chatId,
+`📞 للطلب السريع:
+0796893403`
+      );
     }
+
+    if (msg === "2") {
+      userState.set(chatId, "HUMAN_SUPPORT");
+      return sendMessage(
+        chatId,
+`تم تحويلك لقسم الاستفسارات ✅
+سيتم الرد عليك من قبل الموظف.`
+      );
+    }
+
+    if (msg === "3") {
+      userState.set(chatId, "HUMAN_COMPLAINTS");
+      return sendMessage(
+        chatId,
+`نعتذر منك 🙏
+تم تحويلك لقسم الشكاوى والمتابعة.
+سيتم الرد عليك من قبل الموظف.`
+      );
+    }
+
+    return sendMessage(chatId, "اكتب 1 أو 2 أو 3 فقط");
+  }
+
+  // بعد التحويل لموظف، البوت يسكت
+  if (state === "HUMAN_SUPPORT" || state === "HUMAN_COMPLAINTS") {
+    return;
+  }
 }
 
-/* ================= التحقق من Webhook (Facebook) ================= */
-app.get("/webhook", (req, res) => {
-    const VERIFY_TOKEN = "SaberJo_Secret_2026";
-    const mode      = req.query["hub.mode"];
-    const token     = req.query["hub.verify_token"];
-    const challenge = req.query["hub.challenge"];
-
-    if (mode && token && mode === "subscribe" && token === VERIFY_TOKEN) {
-        console.log("WEBHOOK VERIFIED ✅");
-        res.status(200).send(challenge);
-    } else {
-        res.sendStatus(403);
-    }
-});
-
-/* ================= استقبال الرسائل من كل المنصات ================= */
 app.post("/webhook", async (req, res) => {
+  res.sendStatus(200);
+
+  try {
     const body = req.body;
 
-    // ---------------------------------------------------------
-    // 1. قسم معالجة رسائل (فيسبوك / إنستغرام)
-    // ---------------------------------------------------------
-    if (body.object === "page" || body.object === "instagram") {
-        res.sendStatus(200); // الرد السريع لفيسبوك لتجنب الأخطاء (Timeout)
-        
-        const messaging = body.entry?.[0]?.messaging?.[0];
-        if (messaging?.message?.text) {
-            const chatId = messaging.sender.id;
-            const text = messaging.message.text;
-            console.log("Incoming FB/Insta message:", chatId, text);
+    const chatId =
+      body?.senderData?.chatId ||
+      body?.messageData?.chatId ||
+      body?.chatId;
 
-            try {
-                // إرسال النص للذكاء الاصطناعي
-                const aiResponse = await runAI(text);
-                
-                // إرسال الرد للزبون
-                if(aiResponse.reply) {
-                    await sendMsg("facebook", chatId, aiResponse.reply);
-                }
-                
-                // إذا اكتمل الطلب، إرساله لجروب المطبخ على الواتساب
-                if(aiResponse.kitchenOrder && aiResponse.kitchenOrder.trim() !== "") {
-                    await sendMsg("wa", CONFIG.GROUP_ID, `[KITCHEN_GO]\n${aiResponse.kitchenOrder}`);
-                }
-            } catch (error) {
-                console.error("Error processing FB message:", error);
-            }
-        }
-        return;
-    }
+    const text =
+      body?.messageData?.textMessageData?.textMessage ||
+      body?.messageData?.extendedTextMessageData?.text ||
+      body?.textMessage ||
+      body?.text ||
+      "";
 
-    // ---------------------------------------------------------
-    // 2. قسم معالجة رسائل (واتساب - GreenAPI)
-    // ---------------------------------------------------------
-    if (body.typeWebhook === "incomingMessageReceived") {
-        const chatId = body.senderData?.chatId;
-        
-        // فحص نوع الرسالة (صورة، صوت، فيديو، أو ملف)
-        const typeMessage = body.messageData?.typeMessage;
-        const isMediaMessage = typeMessage === "imageMessage" || 
-                               typeMessage === "audioMessage" ||
-                               typeMessage === "videoMessage" ||
-                               typeMessage === "documentMessage";
+    if (!chatId) return;
 
-        const text = body.messageData?.textMessageData?.textMessage ||
-                     body.messageData?.extendedTextMessageData?.text;
-
-        const messageTimestamp = body.timestamp; 
-        const currentTimestamp = Math.floor(Date.now() / 1000); 
-        
-        // تجاهل الرسائل القديمة (أكثر من 3 دقائق)
-        if (currentTimestamp - messageTimestamp > 180) {
-            console.log(`⚠️ تخطي رسالة قديمة من ${chatId}`);
-            return res.sendStatus(200);
-        }
-
-        // تجاهل رسائل البوت لنفسه
-        if (body.senderData?.sender === body.instanceData?.wid) {
-            return res.sendStatus(200);
-        }
-        
-        // معالجة الرسائل القادمة من الأفراد فقط (وليس الجروبات)
-        if (chatId && !chatId.endsWith("@g.us")) {
-            res.sendStatus(200); // الرد السريع لـ GreenAPI
-
-            // 🛑 إذا أرسل الزبون صورة أو فويس نوت (الرفض اللطيف لتوفير التوكنز):
-            if (isMediaMessage) {
-                console.log(`Media received from ${chatId}, sending polite rejection.`);
-                await sendMsg("wa", chatId, "عذراً يا غالي، لضمان دقة طلبك أنا حالياً بستقبل الطلبات المكتوبة فقط. يا ريت تكتبلي طلبك أو استفسارك كتابة ومن عيوني بكمل معك 🙏");
-                return; // إيقاف التنفيذ هنا
-            }
-
-            // ✅ إذا كانت الرسالة نصية عادية:
-            if (text) {
-                console.log("Incoming WA message:", chatId, text);
-                try {
-                     const aiResponse = await runAI(text);
-                     
-                     if(aiResponse.reply) {
-                         await sendMsg("wa", chatId, aiResponse.reply);
-                     }
-                     
-                     if(aiResponse.kitchenOrder && aiResponse.kitchenOrder.trim() !== "") {
-                         await sendMsg("wa", CONFIG.GROUP_ID, `[KITCHEN_GO]\n${aiResponse.kitchenOrder}`);
-                     }
-                } catch (error) {
-                    console.error("Error processing WA message:", error);
-                }
-            }
-            return;
-        }
-    }
-
-    res.sendStatus(200);
+    await handleMessage(chatId, text);
+  } catch (error) {
+    console.error("Webhook error:", error.message);
+  }
 });
 
-/* ================= تشغيل السيرفر ================= */
-app.listen(CONFIG.PORT, () => {
-    console.log(`🚀 Saber Smart Engine is Live on port ${CONFIG.PORT}!`);
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+  console.log(\`Server running on port \${PORT}\`);
 });
