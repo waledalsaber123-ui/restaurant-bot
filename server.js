@@ -1,26 +1,24 @@
 import express from "express";
-import bodyParser from "body-parser";
 import { sendMessage } from "./whatsapp.js";
 
 const app = express();
-app.use(bodyParser.json());
+app.use(express.json());
 
 const userState = new Map();
 
 async function handleMessage(chatId, text) {
   const msg = String(text || "").trim();
+  if (!msg) return;
 
   if (!userState.has(chatId)) {
     userState.set(chatId, "MENU");
     return sendMessage(
       chatId,
-`أهلًا 👋
+`SERVER TEST 7419
 
 1️⃣ للطلب السريع
 2️⃣ للاستفسار
-3️⃣ للشكاوى
-
-اكتب الرقم المطلوب`
+3️⃣ للشكاوى`
     );
   }
 
@@ -28,68 +26,56 @@ async function handleMessage(chatId, text) {
 
   if (state === "MENU") {
     if (msg === "1") {
-      return sendMessage(
-        chatId,
-`📞 للطلب السريع:
-0796893403`
-      );
+      return sendMessage(chatId, `SERVER TEST 7419\n📞 0796893403`);
     }
 
     if (msg === "2") {
       userState.set(chatId, "HUMAN_SUPPORT");
-      return sendMessage(
-        chatId,
-`تم تحويلك لقسم الاستفسارات ✅
-سيتم الرد عليك من قبل الموظف.`
-      );
+      return sendMessage(chatId, `SERVER TEST 7419\nتم تحويلك لقسم الاستفسارات`);
     }
 
     if (msg === "3") {
       userState.set(chatId, "HUMAN_COMPLAINTS");
-      return sendMessage(
-        chatId,
-`نعتذر منك 🙏
-تم تحويلك لقسم الشكاوى والمتابعة.
-سيتم الرد عليك من قبل الموظف.`
-      );
+      return sendMessage(chatId, `SERVER TEST 7419\nتم تحويلك لقسم الشكاوى`);
     }
 
-    return sendMessage(chatId, "اكتب 1 أو 2 أو 3 فقط");
+    return sendMessage(chatId, "SERVER TEST 7419\nاكتب 1 أو 2 أو 3 فقط");
   }
 
-  // بعد التحويل لموظف، البوت يسكت
   if (state === "HUMAN_SUPPORT" || state === "HUMAN_COMPLAINTS") {
     return;
   }
 }
+
+app.get("/", (req, res) => {
+  res.send("SERVER TEST 7419 OK");
+});
 
 app.post("/webhook", async (req, res) => {
   res.sendStatus(200);
 
   try {
     const body = req.body;
+    console.log("SERVER TEST 7419 WEBHOOK:", JSON.stringify(body));
 
-    const chatId =
-      body?.senderData?.chatId ||
-      body?.messageData?.chatId ||
-      body?.chatId;
+    const webhookType = body?.typeWebhook;
+    if (webhookType && webhookType !== "incomingMessageReceived") return;
 
+    const chatId = body?.senderData?.chatId;
     const text =
       body?.messageData?.textMessageData?.textMessage ||
       body?.messageData?.extendedTextMessageData?.text ||
-      body?.textMessage ||
-      body?.text ||
       "";
 
-    if (!chatId) return;
+    if (!chatId || !text) return;
 
     await handleMessage(chatId, text);
   } catch (error) {
-    console.error("Webhook error:", error.message);
+    console.error("SERVER TEST 7419 ERROR:", error.message);
   }
 });
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-  console.log(\`Server running on port \${PORT}\`);
+  console.log("SERVER TEST 7419 RUNNING ON PORT", PORT);
 });
