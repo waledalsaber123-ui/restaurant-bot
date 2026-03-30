@@ -3,7 +3,7 @@ import { CONFIG } from './config.js';
 
 let activeSupportChats = [];
 
-// الدالة التي يطلبها ملف server.js
+// تصدير الدالة التي يطلبها ملف server.js لإصلاح الخطأ
 export const sendMessage = async (chatId, text) => {
     try {
         await axios.post(`${CONFIG.API_URL}/sendMessage/${CONFIG.GREEN_TOKEN}`, {
@@ -19,6 +19,7 @@ client.on('message', async (msg) => {
     const chatId = msg.from;
     const userMessage = msg.body ? msg.body.trim() : "";
 
+    // منطق إيقاف البوت عند التحويل للموظف
     if (activeSupportChats.includes(chatId)) {
         if (userMessage === "0") {
             activeSupportChats = activeSupportChats.filter(id => id !== chatId);
@@ -27,27 +28,36 @@ client.on('message', async (msg) => {
         return; 
     }
 
+    // القائمة الرئيسية الاحترافية
     if (userMessage === '1') {
-        await sendMessage(chatId, "📞 *قسم المبيعات والاتصال*\n\nيرجى التواصل معنا مباشرة على الرقم التالي:\n0796893403\n\nنحن بانتظارك!");
+        await sendMessage(chatId, "📞 *قسم المبيعات والاتصال المباشر*\n\nيسعدنا تواصلك معنا على الرقم التالي:\n0796893403\n\nنحن بانتظار اتصالك! ✨");
     } 
     else if (userMessage === '2') {
         activeSupportChats.push(chatId);
-        await sendMessage(chatId, "🤝 *تحويل للموظف*\n\nتم إرسال طلبك للموظف المختص. سيتم الرد عليك في أقرب وقت ممكن.\n\n_(ملاحظة: للعودة للبوت الآلي أرسل رقم 0)_");
+        await sendMessage(chatId, "🤝 *تحويل للموظف المختص*\n\nتم إرسال طلبك بنجاح. سيقوم أحد موظفينا بالرد عليك خلال لحظات.\n\n_(ملاحظة: للعودة للبوت الآلي في أي وقت أرسل رقم 0)_");
     }
     else if (userMessage === '3') {
-        await sendMessage(chatId, "📍 *موقعنا وفرعنا*\n\nيمكنك زيارتنا في موقعنا الرسمي من خلال الرابط التالي:\n[أدخل رابط الموقع هنا]");
+        const locationMsg = `📍 *موقعنا وفرعنا الرئيسي*
+
+عمان - شارع الجامعة الأردنية - طلوع هافانا - عند الدوريات الخارجية.
+
+🗺️ لمشاهدة الموقع على الخريطة:
+https://maps.app.goo.gl/Arfm7MYTskFqezj98`;
+        
+        await sendMessage(chatId, locationMsg);
     }
     else {
+        // الرسالة الترحيبية المنسقة
         const welcomeMenu = `
 مرحباً بك في خدمة العملاء 🤖 ✨
 
-من فضلك اختر الرقم المناسب لخدمتك:
+يسعدنا خدمتك، يرجى اختيار الرقم المناسب:
 
 1️⃣  | للحصول على رقم السنتر والاتصال
-2️⃣  | للتحدث مع الموظف مباشرة
-3️⃣  | موقعنا ومعلومات إضافية
+2️⃣  | للتحدث مع الموظف مباشرة (محادثة)
+3️⃣  | موقعنا الجغرافي (العنوان)
 
-نشكر تواصلك معنا!`;
+شكراً لتواصلك معنا! 🙏`;
         await sendMessage(chatId, welcomeMenu);
     }
 });
