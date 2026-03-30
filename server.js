@@ -1,88 +1,130 @@
 import express from "express";
-import { sendMessage } from "./whatsapp.js";
+import axios from "axios";
+import { sendMessage as sendWhatsApp } from "./whatsapp.js";
 
 const app = express();
 app.use(express.json());
 
+// خريطة لتخزين حالة المستخدم (لمعرفة من يتحدث مع موظف)
 const userState = new Map();
 
-// دالة تحويل الأرقام لضمان عمل (١، ٢، ٣)
+// دالة تحويل الأرقام (١، ٢، ٣) إلى (1, 2, 3)
 function fixNumbers(str) {
   if (!str) return "";
-  return str.replace(/[٠-٩]/g, d => "0123456789"["٠١٢٣٤٥٦٧٨٩".indexOf(d)]);
+  const arabicNums = ["٠", "١", "٢", "٣", "٤", "٥", "٦", "٧", "٨", "٩"];
+  let result = str;
+  arabicNums.forEach((a, i) => {
+    result = result.replace(new RegExp(a, 'g'), i);
+  });
+  return result;
 }
 
+// دالة معالجة الرسائل الموحدة لمطعم صابر جو سناك
 async function handleMessage(chatId, text, platform = "WHATSAPP") {
-  // 1. فحص إذا كانت الرسالة من جروب (في واتساب الجروبات تنتهي بـ @g.us)
-  if (platform === "WHATSAPP" && chatId.includes("@g.us")) {
-    console.log("🚫 رسالة من مجموعة.. تم التجاهل.");
+  // 1. تجاهل الجروبات في واتساب
+  if (platform === "WHATSAPP" && chatId.includes("@g.us")) return;
+
+  let rawText = String(text).trim();
+  let msg = fixNumbers(rawText);
+
+  // 2. خيار العودة (0) لإعادة تفعيل البوت
+  if (msg === "0") {
+    userState.set(chatId, "MENU");
+    const backMsg = "✅ تم العودة للقائمة الرئيسية لمطعم صابر جو سناك. البوت الآلي مفعّل الآن.";
+    return platform === "WHATSAPP" ? sendWhatsApp(chatId, backMsg) : sendFBMessage(chatId, backMsg);
+  }
+
+  // 3. الفحص الحاسم: إذا كان المستخدم في حالة "تحدث مع موظف"، اخرج فوراً ولا ترد
+  if (userState.get(chatId) === "HUMAN_SUPPORT") {
+    console.log(`[${platform}] العميل ${chatId} في محادثة مع موظف.. البوت صامت.`);
     return; 
   }
 
-  let msg = fixNumbers(String(text).trim());
-  if (!msg) return;
-
-  // خيار العودة
-  if (msg === "0") {
-    userState.set(chatId, "MENU");
-    return sendMessage(chatId, "✅ تم العودة للقائمة الرئيسية لمطعم صابر جو سناك.");
-  }
-
-  // إذا كان العميل مع الموظف (للواتساب فقط)
-  if (platform === "WHATSAPP" && userState.get(chatId) === "HUMAN_SUPPORT") return;
-
-  // 2. القائمة الترحيبية
+  // 4. القائمة الترحيبية (أول مرة)
   if (!userState.has(chatId) || userState.get(chatId) === "START") {
     userState.set(chatId, "MENU");
     const welcome = `أهلاً بك في مطعم صابر جو سناك 🍔 ✨\n\n1️⃣ | للطلب والاتصال بالسنتر\n2️⃣ | للتحدث مع الموظف مباشره\n3️⃣ | عنواننا وموقعنا الجغرافي\n\nشكراً لتواصلك معنا! ❤️`;
-    return sendMessage(chatId, welcome);
+    return platform === "WHATSAPP" ? sendWhatsApp(chatId, welcome) : sendFBMessage(chatId, welcome);
   }
 
   const state = userState.get(chatId);
 
   if (state === "MENU") {
     if (msg === "1") {
-      return sendMessage(chatId, "📞 *صابر جو سناك*\nلطلب الوجبات، اتصل بنا على:\n0796893403");
+      return platform === "WHATSAPP" 
+        ? sendWhatsApp(chatId, "📞 *صابر جو سناك*\nلطلب الوجبات: 0796893403") 
+        : sendFBMessage(chatId, "📞 *صابر جو سناك*\nرقم الطلبات: 0796893403");
     }
 
     if (msg === "2") {
+      // تفعيل حالة "الموظف" وإيقاف البوت لهذا الرقم
+      userState.set(chatId, "HUMAN_SUPPORT");
+
       if (platform === "FACEBOOK") {
-        // تحويل زبون المسنجر لرابط الواتساب الجديد الذي أرسلته
         const waLink = "https://api.whatsapp.com/message/VOYIS2EQZEGLA1";
-        return sendMessage(chatId, `🤝 *صابر جو سناك*\n\nللرد السريع، يرجى مراسلتنا عبر الواتساب مباشرة من هنا:\n${waLink}`, "FACEBOOK");
+        return sendFBMessage(chatId, `🤝 *صابر جو سناك*\n\nللرد السريع، يرجى مراسلتنا عبر الواتساب مباشرة من هنا:\n${waLink}\n\nنحن بانتظارك! 🍔`);
       } else {
-        userState.set(chatId, "HUMAN_SUPPORT");
-        return sendMessage(chatId, "🤝 *صابر جو سناك*\nتم تحويلك للموظف، سيتم الرد عليك قريباً.\n(أرسل 0 للعودة للرد الآلي)");
+        return sendWhatsApp(chatId, "🤝 *صابر جو سناك*\nتم تحويلك للموظف، سيتوقف البوت عن الرد الآن لخدمتك يدوياً.\n\n(أرسل 0 إذا أردت العودة للبوت الآلي)");
       }
     }
 
     if (msg === "3") {
-      return sendMessage(chatId, "📍 *عنوان مطعم صابر جو سناك*\nعمان - شارع الجامعة - طلوع هافانا.\n🗺️ الخريطة: https://maps.app.goo.gl/Arfm7MYTskFqezj98");
+      const loc = "📍 *عنوان مطعم صابر جو سناك*\nعمان - شارع الجامعة - طلوع هافانا.\n🗺️ الخريطة: https://maps.app.goo.gl/Arfm7MYTskFqezj98";
+      return platform === "WHATSAPP" ? sendWhatsApp(chatId, loc) : sendFBMessage(chatId, loc);
     }
 
-    return sendMessage(chatId, "⚠️ يرجى اختيار (1، 2، أو 3) لخدمتك في صابر جو سناك.");
+    // رسالة تنبيه في حال إدخال خاطئ
+    const retry = "⚠️ من فضلك اختر (1 أو 2 أو 3) لخدمتك في صابر جو سناك.";
+    return platform === "WHATSAPP" ? sendWhatsApp(chatId, retry) : sendFBMessage(chatId, retry);
   }
 }
 
-// --- الـ Webhook (استقبال الرسائل) ---
+// دالة إرسال رسائل المسنجر
+async function sendFBMessage(recipientId, messageText) {
+  try {
+    const PAGE_ACCESS_TOKEN = process.env.PAGE_TOKEN;
+    await axios.post(`https://graph.facebook.com/v12.0/me/messages?access_token=${PAGE_ACCESS_TOKEN}`, {
+      recipient: { id: recipientId },
+      message: { text: messageText },
+    });
+  } catch (error) {
+    console.error("❌ Facebook Send Error:", error.response?.data || error.message);
+  }
+}
+
+// الـ Webhooks
 app.post("/webhook", async (req, res) => {
   res.sendStatus(200);
-  try {
-    const body = req.body;
-    // التحقق من نوع الرسالة (رسالة قادمة)
-    if (body?.typeWebhook !== "incomingMessageReceived") return;
+  const body = req.body;
+  if (body?.typeWebhook !== "incomingMessageReceived") return;
+  const chatId = body?.senderData?.chatId;
+  const text = body?.messageData?.textMessageData?.textMessage || 
+               body?.messageData?.extendedTextMessageData?.text || "";
+  if (chatId && text) await handleMessage(chatId, text, "WHATSAPP");
+});
 
-    const chatId = body?.senderData?.chatId;
-    const text = body?.messageData?.textMessageData?.textMessage || 
-                 body?.messageData?.extendedTextMessageData?.text || "";
+app.post("/facebook-webhook", async (req, res) => {
+  const body = req.body;
+  if (body.object === 'page') {
+    body.entry.forEach(entry => {
+      if (entry.messaging) {
+        const ev = entry.messaging[0];
+        const senderId = ev.sender.id;
+        const text = ev.message?.text;
+        if (text) handleMessage(senderId, text, "FACEBOOK");
+      }
+    });
+    res.status(200).send('EVENT_RECEIVED');
+  }
+});
 
-    if (chatId && text) {
-      await handleMessage(chatId, text, "WHATSAPP");
-    }
-  } catch (error) {
-    console.error("ERROR:", error.message);
+app.get("/facebook-webhook", (req, res) => {
+  if (req.query['hub.verify_token'] === "saber_snack_token") {
+    res.status(200).send(req.query['hub.challenge']);
+  } else {
+    res.sendStatus(403);
   }
 });
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log("SABER JO SNACK BOT IS ACTIVE! ✅"));
+app.listen(PORT, () => console.log(`🚀 Saber Go Snack Bot Live on Port ${PORT}`));
