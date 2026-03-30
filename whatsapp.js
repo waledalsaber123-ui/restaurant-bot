@@ -1,9 +1,10 @@
 import axios from 'axios';
 import { CONFIG } from './config.js';
 
-let activeSupportChats = [];
+// قائمة لتخزين العملاء الذين يحتاجون لموظف (مؤقتة في الذاكرة)
+let activeSupportChats = new Map();
 
-// تصدير الدالة التي يطلبها ملف server.js لإصلاح الخطأ
+// الدالة الأساسية لإرسال الرسائل
 export const sendMessage = async (chatId, text) => {
     try {
         await axios.post(`${CONFIG.API_URL}/sendMessage/${CONFIG.GREEN_TOKEN}`, {
@@ -11,53 +12,36 @@ export const sendMessage = async (chatId, text) => {
             message: text
         });
     } catch (error) {
-        console.error("Error in WhatsApp SendMessage:", error.message);
+        console.error("❌ Error in WhatsApp SendMessage:", error.response ? error.response.data : error.message);
     }
 };
 
-client.on('message', async (msg) => {
-    const chatId = msg.from;
-    const userMessage = msg.body ? msg.body.trim() : "";
+// الدالة التي تعالج الردود الآلية والقائمة (سيتم استدعاؤها من server.js)
+export const handleWhatsAppMenu = async (chatId, userMessage) => {
+    const msg = userMessage.trim();
 
-    // منطق إيقاف البوت عند التحويل للموظف
-    if (activeSupportChats.includes(chatId)) {
-        if (userMessage === "0") {
-            activeSupportChats = activeSupportChats.filter(id => id !== chatId);
-            await sendMessage(chatId, "✅ تم تفعيل الرد الآلي مجدداً. كيف يمكنني مساعدتك؟");
+    // 1. التحقق من حالة الموظف
+    if (activeSupportChats.has(chatId)) {
+        if (msg === "0") {
+            activeSupportChats.delete(chatId);
+            await sendMessage(chatId, "✅ تم تفعيل الرد الآلي مجدداً.");
         }
-        return; 
+        return; // توقف عن الرد الآلي
     }
 
-    // القائمة الرئيسية الاحترافية
-    if (userMessage === '1') {
-        await sendMessage(chatId, "📞 *قسم المبيعات والاتصال المباشر*\n\nيسعدنا تواصلك معنا على الرقم التالي:\n0796893403\n\nنحن بانتظار اتصالك! ✨");
+    // 2. القائمة الرئيسية
+    if (msg === "1") {
+        await sendMessage(chatId, "📞 *قسم المبيعات والاتصال المباشر*\n\n0796893403");
     } 
-    else if (userMessage === '2') {
-        activeSupportChats.push(chatId);
-        await sendMessage(chatId, "🤝 *تحويل للموظف المختص*\n\nتم إرسال طلبك بنجاح. سيقوم أحد موظفينا بالرد عليك خلال لحظات.\n\n_(ملاحظة: للعودة للبوت الآلي في أي وقت أرسل رقم 0)_");
-    }
-    else if (userMessage === '3') {
-        const locationMsg = `📍 *موقعنا وفرعنا الرئيسي*
-
-عمان - شارع الجامعة الأردنية - طلوع هافانا - عند الدوريات الخارجية.
-
-🗺️ لمشاهدة الموقع على الخريطة:
-https://maps.app.goo.gl/Arfm7MYTskFqezj98`;
-        
-        await sendMessage(chatId, locationMsg);
-    }
+    else if (msg === "2") {
+        activeSupportChats.set(chatId, true);
+        await sendMessage(chatId, "🤝 *تحويل للموظف المختص*\n\nيرجى الانتظار.. (أرسل 0 للعودة للبوت)");
+    } 
+    else if (msg === "3") {
+        await sendMessage(chatId, "📍 *موقعنا*\n\nعمان - شارع الجامعة الأردنية - طلوع هافانا - عند الدوريات الخارجية.\n\n🗺️ الخريطة: https://maps.app.goo.gl/Arfm7MYTskFqezj98");
+    } 
     else {
-        // الرسالة الترحيبية المنسقة
-        const welcomeMenu = `
-مرحباً بك في خدمة العملاء 🤖 ✨
-
-يسعدنا خدمتك، يرجى اختيار الرقم المناسب:
-
-1️⃣  | للحصول على رقم السنتر والاتصال
-2️⃣  | للتحدث مع الموظف مباشرة (محادثة)
-3️⃣  | موقعنا الجغرافي (العنوان)
-
-شكراً لتواصلك معنا! 🙏`;
-        await sendMessage(chatId, welcomeMenu);
+        const menu = `مرحباً بك 🤖\n\n1️⃣ للاتصال\n2️⃣ للمحادثة\n3️⃣ للموقع`;
+        await sendMessage(chatId, menu);
     }
-});
+};
