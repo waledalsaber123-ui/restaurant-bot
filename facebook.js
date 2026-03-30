@@ -1,39 +1,30 @@
-// مصفوفة لتخزين معرفات (IDs) مستخدمي فيسبوك الذين يتحدثون مع موظف
 let fbActiveSupport = [];
 
-// دالة استقبال الرسائل في فيسبوك
 client.on('message', async (msg) => {
-    const senderId = msg.sender.id; // معرف الشخص المرسل على مسنجر
+    const senderId = msg.sender.id;
     const userMessage = msg.message.text ? msg.message.text.trim() : "";
 
-    // 1. التحقق إذا كان الزبون في وضع "المحادثة البشرية"
     if (fbActiveSupport.includes(senderId)) {
-        // إذا كتب الزبون "رجوع" يعود البوت للرد
-        if (userMessage === "رجوع") {
+        if (userMessage === "0") {
             fbActiveSupport = fbActiveSupport.filter(id => id !== senderId);
-            await client.sendTextMessage(senderId, "تم تفعيل الرد الآلي مجدداً. كيف يمكنني مساعدتك؟");
+            await client.sendTextMessage(senderId, "✅ تم تفعيل الرد الآلي مجدداً.");
         }
-        return; // البوت يصمت هنا ليعطي المجال للموظف
+        return;
     }
 
-    // 2. منطق الردود بناءً على طلبك
     if (userMessage === "1") {
-        await client.sendTextMessage(senderId, "📞 للاتصال بنا، يرجى التواصل مع السنتر على الرقم التالي: \n0796893403");
+        await client.sendTextMessage(senderId, "📞 رقم السنتر للاتصال المباشر: 0796893403");
     } 
-    
     else if (userMessage === "2") {
-        // إضافة الزبون لقائمة الإيقاف المؤقت للبوت
         fbActiveSupport.push(senderId);
-        
-        await client.sendTextMessage(senderId, "💬 تم تحويلك للمحادثة المباشرة مع الموظف. يرجى الانتظار قليلاً.");
-        console.log(`[Facebook] زبون جديد (ID: ${senderId}) يطلب موظف.`);
+        await client.sendTextMessage(senderId, "💬 تم تحويلك للموظف. سيتحدث معك قريباً.\n(أرسل 0 للعودة للرد الآلي)");
     } 
-    
+    else if (userMessage === "3") {
+        const address = "📍 عنواننا: عمان - شارع الجامعة الأردنية - طلوع هافانا - عند الدوريات الخارجية.\n\nالخريطة: https://maps.app.goo.gl/Arfm7MYTskFqezj98";
+        await client.sendTextMessage(senderId, address);
+    }
     else {
-        // القائمة الترحيبية على المسنجر
-        const welcomeMenu = "مرحباً بك في صفحتنا 🤖\n\n" +
-                            "اضغط [ 1 ] : لرقم السنتر والاتصال\n" +
-                            "اضغط [ 2 ] : للتحدث مع الموظف مباشرة";
+        const welcomeMenu = "أهلاً بك في مسنجر 🤖\n\n1️⃣ الاتصال بالسنتر\n2️⃣ التحدث مع موظف\n3️⃣ موقعنا وعنواننا";
         await client.sendTextMessage(senderId, welcomeMenu);
     }
 });
