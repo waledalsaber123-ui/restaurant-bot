@@ -3,80 +3,60 @@ import { CONFIG } from "./config.js";
 
 const messageQueue = [];
 let isProcessingQueue = false;
+const sentCache = new Map();
 
-// 🧠 تخزين آخر الرسائل لمنع التكرار
-const sentCache = new Map(); // key: chatId+text
-
-const delay = (ms) => new Promise(res => setTimeout(res, ms));
+const delay = (ms) => new Promise((res) => setTimeout(res, ms));
 
 async function processQueue() {
-    if (isProcessingQueue || messageQueue.length === 0) return;
-    isProcessingQueue = true;
+  if (isProcessingQueue || messageQueue.length === 0) return;
+  isProcessingQueue = true;
 
-    while (messageQueue.length > 0) {
-        const { chatId, text, resolve, reject } = messageQueue.shift();
+  while (messageQueue.length > 0) {
+    const { chatId, text, resolve, reject } = messageQueue.shift();
 
-        try {
-            const idInstance = String(CONFIG.ID_INSTANCE).trim();
-            const apiToken = String(CONFIG.GREEN_TOKEN).trim();
+    try {
+      const idInstance = String(CONFIG.ID_INSTANCE).trim();
+      const apiToken = String(CONFIG.GREEN_TOKEN).trim();
 
-            // 🔒 منع إرسال نفس الرسالة لنفس الشخص خلال 10 ثواني
-            const key = chatId + "_" + text;
-            const now = Date.now();
+      const key = \`\${chatId}_\${text}\`;
+      const now = Date.now();
 
-            if (sentCache.has(key)) {
-                const lastTime = sentCache.get(key);
-                if (now - lastTime < 10000) {
-                    console.log("⚠️ Duplicate prevented");
-                    resolve();
-                    continue;
-                }
-            }
+      if (sentCache.has(key) && now - sentCache.get(key) < 10000) {
+        console.log("Duplicate prevented");
+        resolve();
+        continue;
+      }
 
-            sentCache.set(key, now);
+      sentCache.set(key, now);
 
-            const url = \`https://7103.api.greenapi.com/waInstance\${idInstance}/sendMessage/\${apiToken}\`;
+      const url = \`https://7103.api.greenapi.com/waInstance\${idInstance}/sendMessage/\${apiToken}\`;
 
-            console.log(\`🚀 Sending → \${chatId}\`);
+      const response = await axios.post(url, {
+        chatId,
+        message: text,
+      });
 
-            const response = await axios.post(url, {
-                chatId: chatId,
-                message: text
-            });
-
-            if (response.data?.idMessage) {
-                console.log("✅ Sent");
-                resolve();
-            }
-
-        } catch (err) {
-            console.error("❌ ERROR:");
-
-            if (err.response?.data) {
-                console.error(err.response.data);
-            } else {
-                console.error(err.message);
-            }
-
-            reject(err);
-        }
-
-        // 🔥 تأخير ذكي (2.5 - 4 ثواني عشوائي لتجنب الحظر)
-        await delay(2500 + Math.random() * 1500);
+      if (response.data?.idMessage) {
+        console.log("Message sent:", response.data.idMessage);
+        resolve();
+      } else {
+        resolve();
+      }
+    } catch (err) {
+      console.error("WHATSAPP ERROR:", err.response?.data || err.message);
+      reject(err);
     }
 
-    isProcessingQueue = false;
+    await delay(2500);
+  }
+
+  isProcessingQueue = false;
 }
 
 export function sendMessage(chatId, text) {
-    return new Promise((resolve, reject) => {
-
-        // 🛑 فلتر إضافي: منع نص فاضي
-        if (!text || text.trim() === "") {
-            return resolve();
-        }
-
-        messageQueue.push({ chatId, text, resolve, reject });
-        processQueue();
-    });
+  return new Promise((resolve, reject) => {
+    if (!chatId || !text?.trim()) return resolve();
+    messageQueue.push({ chatId, text, resolve, reject });
+    processQueue();
+  });
 }
