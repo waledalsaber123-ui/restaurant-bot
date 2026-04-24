@@ -10,60 +10,100 @@ const app = express();
 app.use(express.json());
 
 const openai = new OpenAI({ apiKey: CONFIG.OPENAI_KEY });
+
+// تحديث أسعار التوصيل عند التشغيل
 fetchDeliveryPrices();
 
 const userSessions = new Map();
+const messageQueues = new Map();
 
-async function processMessage(platform, senderId, messageList) {
-    if (!userSessions.has(senderId)) {
-        let systemPrompt = fs.readFileSync('./prompt.txt', 'utf8').replace('{{PRICES}}', deliveryPricesText);
-        userSessions.set(senderId, { history: [{ role: "system", content: systemPrompt }] });
-    }
-
+/**
+ * دالة معالجة الرسائل وإرسالها لـ OpenAI
+ */
+async function processFinalMessage(platform, senderId) {
     const session = userSessions.get(senderId);
-    let userContent = [];
+    const msgs = messageQueues.get(senderId);
+    
+    if (!session || !msgs || msgs.length === 0) return;
 
-    messageList.forEach(msg => {
+    // 1. استدعاء التعليمات الأساسية دائمًا لضمان عدم النسيان
+    const systemInstruction = fs.readFileSync('./prompt.txt', 'utf8').replace('{{PRICES}}', deliveryPricesText);
+
+    // 2. تجهيز محتوى الرسائل الجديدة
+    let userContent = [];
+    msgs.forEach(msg => {
         if (msg.type === 'text') userContent.push({ type: "text", text: msg.data });
         if (msg.type === 'image') userContent.push({ type: "image_url", image_url: { url: msg.data } });
     });
 
+    // إضافة المحتوى الجديد لتاريخ الجلسة
     session.history.push({ role: "user", content: userContent });
+    messageQueues.delete(senderId); // تنظيف الطابور
 
-    // تنظيف الذاكرة (إبقاء آخر 15 رسالة للسياق)
-    if (session.history.length > 15) session.history.splice(1, 2);
+    // 3. تنظيف التاريخ (إبقاء آخر 8 رسائل فقط لضمان التركيز العالي)
+    if (session.history.length > 8) {
+        session.history.splice(0, 2);
+    }
+
+    // 4. بناء مصفوفة الرسائل (التعليمات الثابتة + التاريخ)
+    const messagesForOpenAI = [
+        { role: "system", content: systemInstruction },
+        ...session.history
+    ];
 
     try {
+        console.log(`🧠 جاري طلب الرد من صابر للرقم: ${senderId}`);
         const completion = await openai.chat.completions.create({
             model: "gpt-4o-mini",
-            messages: session.history,
-            temperature: 0.1, // تقليل العشوائية عشان ما يكرر ترحيب
+            messages: messagesForOpenAI,
+            temperature: 0, // للالتزام التام بالمنيو وعدم التأليف
+            max_tokens: 400,
         });
 
         let botReply = completion.choices[0].message.content;
         session.history.push({ role: "assistant", content: botReply });
 
-        if (platform === 'whatsapp') await sendWhatsAppMessage(senderId, botReply);
-        else if (platform === 'facebook') await sendFacebookMessage(senderId, botReply);
+        // إرسال الرد للمنصة المناسبة
+        if (platform === 'whatsapp') {
+            await sendWhatsAppMessage(senderId, botReply);
+        } else if (platform === 'facebook') {
+            await sendFacebookMessage(senderId, botReply);
+        }
 
+        // إرسال للمطبخ إذا تم التأكيد
         if (botReply.includes("[CONFIRMED_ORDER]")) {
             const cleanReply = botReply.replace("[CONFIRMED_ORDER]", "").trim();
-            await sendWhatsAppMessage(CONFIG.GROUP_ID, `🚨 طلب جديد من ${senderId}:\n\n${cleanReply}`);
+            const kitchenMsg = `🚨 *طلب جديد من ${platform === 'facebook' ? 'فيسبوك' : 'واتساب'}*:\n\n${cleanReply}`;
+            await sendWhatsAppMessage(CONFIG.GROUP_ID, kitchenMsg);
         }
+
     } catch (error) {
-        console.error("❌ خطأ:", error.message);
+        console.error("❌ خطأ في OpenAI:", error.message);
     }
 }
 
-const messageQueues = new Map();
-
+/**
+ * مسار الويب هوك الموحد (واتساب)
+ */
 app.post('/webhook', async (req, res) => {
     res.status(200).send('OK');
     const data = req.body;
-    if (data?.typeWebhook === 'incomingMessageReceived') {
+
+    if (data && data.typeWebhook === 'incomingMessageReceived') {
         const senderId = data.senderData.chatId;
+        
+        // تجاهل رسائل البوت نفسه
         if (data.senderData.sender.includes(CONFIG.ID_INSTANCE)) return;
 
+        // تجاهل الجروبات وحالات الواتساب
+        if (senderId.includes('@g.us') || senderId === 'status@broadcast') return;
+
+        // تجهيز الجلسة
+        if (!userSessions.has(senderId)) {
+            userSessions.set(senderId, { history: [], timer: null });
+        }
+
+        // تحديد نوع الرسالة (نص أو صورة)
         let currentMsg = null;
         if (data.messageData.typeMessage === 'imageMessage') {
             currentMsg = { type: 'image', data: data.messageData.fileMessageData.downloadUrl };
@@ -74,20 +114,59 @@ app.post('/webhook', async (req, res) => {
 
         if (!currentMsg) return;
 
-        // نظام التجميع: انتظر 5 ثواني لجمع الرسايل ورا بعض
+        // إضافة الرسالة لطابور الانتظار
         if (!messageQueues.has(senderId)) messageQueues.set(senderId, []);
         messageQueues.get(senderId).push(currentMsg);
 
-        clearTimeout(userSessions.get(senderId)?.timer);
-        const timer = setTimeout(() => {
-            const msgs = messageQueues.get(senderId);
-            messageQueues.delete(senderId);
-            processMessage('whatsapp', senderId, msgs);
-        }, 5000); // 5 ثواني انتظار كافية جداً
+        // نظام الانتظار الذكي (5 ثوانٍ) لتجميع الرسائل
+        const session = userSessions.get(senderId);
+        if (session.timer) clearTimeout(session.timer);
 
-        if (!userSessions.has(senderId)) userSessions.set(senderId, { history: [], timer: timer });
-        else userSessions.get(senderId).timer = timer;
+        session.timer = setTimeout(() => {
+            processFinalMessage('whatsapp', senderId);
+        }, 5000);
     }
 });
 
-app.listen(CONFIG.PORT, () => console.log(`🚀 صابر يعمل بنظام الذاكرة المستمرة...`));
+/**
+ * مسارات الفيسبوك (Messenger)
+ */
+app.get('/webhook/facebook', (req, res) => {
+    if (req.query['hub.mode'] === 'subscribe' && req.query['hub.verify_token'] === CONFIG.FB_VERIFY_TOKEN) {
+        res.status(200).send(req.query['hub.challenge']);
+    } else {
+        res.sendStatus(403);
+    }
+});
+
+app.post('/webhook/facebook', async (req, res) => {
+    const body = req.body;
+    if (body.object === 'page') {
+        res.status(200).send('EVENT_RECEIVED');
+        body.entry.forEach(async (entry) => {
+            const webhookEvent = entry.messaging[0];
+            if (webhookEvent.message && webhookEvent.message.text) {
+                const senderId = webhookEvent.sender.id;
+                
+                if (!userSessions.has(senderId)) {
+                    userSessions.set(senderId, { history: [], timer: null });
+                }
+                
+                if (!messageQueues.has(senderId)) messageQueues.set(senderId, []);
+                messageQueues.get(senderId).push({ type: 'text', data: webhookEvent.message.text });
+
+                const session = userSessions.get(senderId);
+                if (session.timer) clearTimeout(session.timer);
+                session.timer = setTimeout(() => {
+                    processFinalMessage('facebook', senderId);
+                }, 5000);
+            }
+        });
+    } else {
+        res.sendStatus(404);
+    }
+});
+
+app.listen(CONFIG.PORT, () => {
+    console.log(`🚀 صابر يعمل الآن بأعلى كفاءة على بورت ${CONFIG.PORT}`);
+});
