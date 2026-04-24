@@ -1,36 +1,29 @@
 import axios from 'axios';
-import Papa from 'papaparse';
 import { CONFIG } from './config.js';
 
-export let deliveryPricesText = "جاري تحميل الأسعار...";
+export let deliveryPrices = {};
+export let deliveryPricesText = "";
 
-// دالة لجلب الأسعار من رابط Google Sheets
 export async function fetchDeliveryPrices() {
     try {
-        if (!CONFIG.PRICES_CSV_URL) {
-            deliveryPricesText = "تنبيه: رابط أسعار التوصيل غير متوفر.";
-            return;
-        }
-
         const response = await axios.get(CONFIG.PRICES_CSV_URL);
-        const parsed = Papa.parse(response.data, { header: true, skipEmptyLines: true });
-        
-        let textBuilder = "أسعار التوصيل المعتمدة:\n";
-        parsed.data.forEach(row => {
-            // يبحث عن عمود "المنطقة" وعمود "السعر"
-            const region = row['المنطقة'] || row['region'] || Object.values(row)[0];
-            const price = row['السعر'] || row['price'] || Object.values(row)[1];
-            if (region && price) {
-                textBuilder += `- ${region}: ${price} دنانير\n`;
+        const rows = response.data.split('\n').slice(1); 
+        let tempPrices = [];
+
+        rows.forEach(row => {
+            const [area, price] = row.split(',');
+            if (area && price) {
+                tempPrices.push(`${area.trim()}: ${price.trim()} JD`);
             }
         });
 
-        deliveryPricesText = textBuilder;
-        console.log("تم تحديث أسعار التوصيل من ملف الدرايف بنجاح!");
+        deliveryPricesText = tempPrices.join('\n');
+        console.log("✅ تم تحديث قائمة أسعار التوصيل بنجاح.");
     } catch (error) {
-        console.error("خطأ في جلب أسعار التوصيل:", error.message);
+        console.error("❌ خطأ في سحب أسعار التوصيل:", error.message);
+        deliveryPricesText = "يرجى التواصل مع الإدارة لمعرفة سعر التوصيل.";
     }
 }
 
-// تحديث الأسعار كل ساعة تلقائياً (60 دقيقة * 60 ثانية * 1000 ملي ثانية)
+// تحديث الأسعار كل ساعة تلقائياً
 setInterval(fetchDeliveryPrices, 60 * 60 * 1000);
