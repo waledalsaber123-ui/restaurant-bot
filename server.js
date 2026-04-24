@@ -13,24 +13,31 @@ const openai = new OpenAI({ apiKey: CONFIG.OPENAI_KEY });
 fetchDeliveryPrices();
 
 const userSessions = new Map();
-const pendingResponses = new Map(); // لتجميع رسائل الزبون
 
-async function processFinalMessage(platform, senderId) {
+async function processMessage(platform, senderId, messageList) {
+    if (!userSessions.has(senderId)) {
+        let systemPrompt = fs.readFileSync('./prompt.txt', 'utf8').replace('{{PRICES}}', deliveryPricesText);
+        userSessions.set(senderId, { history: [{ role: "system", content: systemPrompt }] });
+    }
+
     const session = userSessions.get(senderId);
-    if (!session || session.pendingContent.length === 0) return;
+    let userContent = [];
 
-    console.log(`🧠 جاري تحليل جميع رسائل ${senderId} ورد واحد محترم...`);
-    
-    // دمج كل الرسائل (نصوص وصور) في مصفوفة واحدة
-    session.history.push({ role: "user", content: session.pendingContent });
-    session.pendingContent = []; // تصغير القائمة بعد المعالجة
+    messageList.forEach(msg => {
+        if (msg.type === 'text') userContent.push({ type: "text", text: msg.data });
+        if (msg.type === 'image') userContent.push({ type: "image_url", image_url: { url: msg.data } });
+    });
+
+    session.history.push({ role: "user", content: userContent });
+
+    // تنظيف الذاكرة (إبقاء آخر 15 رسالة للسياق)
+    if (session.history.length > 15) session.history.splice(1, 2);
 
     try {
         const completion = await openai.chat.completions.create({
             model: "gpt-4o-mini",
             messages: session.history,
-            max_tokens: 500,
-            temperature: 0.2,
+            temperature: 0.1, // تقليل العشوائية عشان ما يكرر ترحيب
         });
 
         let botReply = completion.choices[0].message.content;
@@ -41,51 +48,46 @@ async function processFinalMessage(platform, senderId) {
 
         if (botReply.includes("[CONFIRMED_ORDER]")) {
             const cleanReply = botReply.replace("[CONFIRMED_ORDER]", "").trim();
-            const groupMsg = `🚨 طلب جديد من ${platform}!\nرقم: ${senderId}\n\n${cleanReply}`;
-            await sendWhatsAppMessage(CONFIG.GROUP_ID, groupMsg);
+            await sendWhatsAppMessage(CONFIG.GROUP_ID, `🚨 طلب جديد من ${senderId}:\n\n${cleanReply}`);
         }
     } catch (error) {
         console.error("❌ خطأ:", error.message);
     }
 }
 
+const messageQueues = new Map();
+
 app.post('/webhook', async (req, res) => {
     res.status(200).send('OK');
     const data = req.body;
-    if (data && data.typeWebhook === 'incomingMessageReceived') {
+    if (data?.typeWebhook === 'incomingMessageReceived') {
         const senderId = data.senderData.chatId;
         if (data.senderData.sender.includes(CONFIG.ID_INSTANCE)) return;
 
-        if (!userSessions.has(senderId)) {
-            let systemPrompt = fs.readFileSync('./prompt.txt', 'utf8').replace('{{PRICES}}', deliveryPricesText);
-            userSessions.set(senderId, { 
-                history: [{ role: "system", content: systemPrompt }], 
-                pendingContent: [],
-                lastUpdated: Date.now() 
-            });
-        }
-
-        const session = userSessions.get(senderId);
-        
-        // تجميع النص أو الصور
+        let currentMsg = null;
         if (data.messageData.typeMessage === 'imageMessage') {
-            session.pendingContent.push({ type: "image_url", image_url: { url: data.messageData.fileMessageData.downloadUrl } });
-            if (data.messageData.fileMessageData.caption) session.pendingContent.push({ type: "text", text: data.messageData.fileMessageData.caption });
+            currentMsg = { type: 'image', data: data.messageData.fileMessageData.downloadUrl };
         } else {
             const text = data.messageData.textMessageData?.textMessage || data.messageData.extendedTextMessageData?.text || "";
-            if (text) session.pendingContent.push({ type: "text", text: text });
+            if (text) currentMsg = { type: 'text', data: text };
         }
 
-        // إلغاء أي مؤقت قديم وتشغيل مؤقت جديد (ينتظر 10 ثواني)
-        if (pendingResponses.has(senderId)) clearTimeout(pendingResponses.get(senderId));
-        
-        const timer = setTimeout(() => {
-            processFinalMessage('whatsapp', senderId);
-            pendingResponses.delete(senderId);
-        }, 5000); // 10 ثواني انتظار
+        if (!currentMsg) return;
 
-        pendingResponses.set(senderId, timer);
+        // نظام التجميع: انتظر 5 ثواني لجمع الرسايل ورا بعض
+        if (!messageQueues.has(senderId)) messageQueues.set(senderId, []);
+        messageQueues.get(senderId).push(currentMsg);
+
+        clearTimeout(userSessions.get(senderId)?.timer);
+        const timer = setTimeout(() => {
+            const msgs = messageQueues.get(senderId);
+            messageQueues.delete(senderId);
+            processMessage('whatsapp', senderId, msgs);
+        }, 5000); // 5 ثواني انتظار كافية جداً
+
+        if (!userSessions.has(senderId)) userSessions.set(senderId, { history: [], timer: timer });
+        else userSessions.get(senderId).timer = timer;
     }
 });
 
-app.listen(CONFIG.PORT, () => console.log(`🚀 صابر "الذكي" يعمل الآن...`));
+app.listen(CONFIG.PORT, () => console.log(`🚀 صابر يعمل بنظام الذاكرة المستمرة...`));
