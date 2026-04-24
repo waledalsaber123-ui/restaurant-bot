@@ -11,10 +11,8 @@ app.use(express.json());
 
 const openai = new OpenAI({ apiKey: CONFIG.OPENAI_KEY });
 
-// جلب الأسعار فور تشغيل السيرفر
 fetchDeliveryPrices();
 
-// ذاكرة المحادثات
 const userSessions = new Map();
 const SESSION_TTL = 24 * 60 * 60 * 1000;
 
@@ -28,38 +26,33 @@ setInterval(() => {
 }, 60 * 60 * 1000);
 
 async function processMessage(platform, senderId, text) {
+    console.log(`🤖 جاري معالجة رسالة من ${platform} للرقم: ${senderId}`);
+    
     if (!userSessions.has(senderId)) {
-        // قراءة البرومبت من الملف الخارجي
         let systemPrompt = "";
         try {
             systemPrompt = fs.readFileSync('./prompt.txt', 'utf8');
-            // استبدال الكلمة الدلالية بأسعار الإكسل
             systemPrompt = systemPrompt.replace('{{PRICES}}', deliveryPricesText);
         } catch (err) {
-            console.error("خطأ في قراءة ملف prompt.txt:", err.message);
-            systemPrompt = `أنت مساعد مطعم Saber Jo Snack. الأسعار: ${deliveryPricesText}`; // بديل للطوارئ
+            systemPrompt = `أنت مساعد مطعم Saber Jo Snack. الأسعار: ${deliveryPricesText}`;
         }
 
         userSessions.set(senderId, {
-            history: [
-                {
-                    role: "system",
-                    content: systemPrompt
-                }
-            ],
+            history: [{ role: "system", content: systemPrompt }],
             lastUpdated: Date.now()
         });
     }
 
     const session = userSessions.get(senderId);
     session.lastUpdated = Date.now();
-
     session.history.push({ role: "user", content: text });
+
     if (session.history.length > 11) { 
         session.history.splice(1, 2); 
     }
 
     try {
+        console.log("🧠 جاري طلب الرد من OpenAI...");
         const completion = await openai.chat.completions.create({
             model: "gpt-4o-mini",
             messages: session.history,
@@ -68,6 +61,7 @@ async function processMessage(platform, senderId, text) {
         });
 
         let botReply = completion.choices[0].message.content;
+        console.log("✅ استلمت الرد من OpenAI بنجاح.");
         session.history.push({ role: "assistant", content: botReply });
 
         if (botReply.includes("[CONFIRMED_ORDER]")) {
@@ -77,56 +71,53 @@ async function processMessage(platform, senderId, text) {
             else if (platform === 'facebook') await sendFacebookMessage(senderId, cleanReply);
 
             const platformName = platform === 'facebook' ? 'فيسبوك ماسنجر 🔵' : 'واتساب 🟢';
-            const groupMessage = `🚨 *طلب جديد من ${platformName}!*\nرقم المحادثة: ${senderId.replace('@c.us', '')}\n\n*التفاصيل:*\n${cleanReply}`;
+            const groupMessage = `🚨 *طلب جديد من ${platformName}!*\nرقم: ${senderId.replace('@c.us', '')}\n\n*التفاصيل:*\n${cleanReply}`;
             await sendWhatsAppMessage(CONFIG.GROUP_ID, groupMessage);
 
         } else {
-            if (platform === 'whatsapp') await sendWhatsAppMessage(senderId, botReply);
-            else if (platform === 'facebook') await sendFacebookMessage(senderId, botReply);
+            if (platform === 'whatsapp') {
+                console.log("📨 جاري إرسال الرد إلى واتساب...");
+                await sendWhatsAppMessage(senderId, botReply);
+            } else if (platform === 'facebook') {
+                await sendFacebookMessage(senderId, botReply);
+            }
         }
 
     } catch (error) {
-        console.error("OpenAI Error:", error.message);
-        const errorMsg = "عذراً يا غالي، في ضغط حالياً على النظام. ثواني وبكون معك! 🍔";
-        if (platform === 'whatsapp') await sendWhatsAppMessage(senderId, errorMsg);
-        else await sendFacebookMessage(senderId, errorMsg);
+        console.error("❌ خطأ في OpenAI أو الإرسال:", error.message);
+        if (error.message.includes("401") || error.message.includes("API key")) {
+            console.error("⚠️ مشكلة في مفتاح OpenAI Key.. تأكد منه في Render!");
+        }
     }
 }
 
-// مسار الواتساب
-// مسار الواتساب (محدث لاستقبال الرسائل الواردة بشكل صحيح)
 app.post('/webhook', async (req, res) => {
     res.status(200).send('OK'); 
     try {
         const data = req.body;
         
-        // سطر المراقبة: رح يطبع على الشاشة السوداء أي حركة بتصير عشان نتطمن
-        console.log("استلمت إشعار من الواتساب بنوع:", data.typeWebhook); 
-
-        // التأكد أن الإشعار هو رسالة واردة من زبون
+        // فحص نوع الرسالة بدقة
         if (data && data.typeWebhook === 'incomingMessageReceived') {
              const messageData = data.messageData;
              const senderData = data.senderData;
 
-             if (messageData && messageData.typeMessage === 'textMessage') {
+             if (messageData && (messageData.typeMessage === 'textMessage' || messageData.typeMessage === 'extendedTextMessage')) {
                  const senderId = senderData.chatId;
-                 const text = messageData.textMessageData.textMessage;
+                 const text = messageData.textMessageData?.textMessage || messageData.extendedTextMessageData?.text || "";
                  
-                 // تجاهل رسائل البوت لنفسه، وتجاهل رسائل الجروبات (عشان ما يرد بجروب المطبخ)، وحالات الواتساب
-                 if (senderId !== 'status@broadcast' && 
-                     !senderId.includes('@g.us') && 
-                     !data.senderData.sender.includes(CONFIG.ID_INSTANCE)) {
-                     
+                 // الشرط الصارم: لا ترد على الجروبات ولا على نفسك
+                 if (senderId.includes('@c.us') && !senderId.includes('@g.us') && !senderData.sender.includes(CONFIG.ID_INSTANCE)) {
                     await processMessage('whatsapp', senderId, text);
+                 } else {
+                    console.log("🚫 تم تجاهل الرسالة (إما جروب أو رسالة من البوت نفسه).");
                  }
              }
         }
     } catch (error) {
-        console.error("خطأ في معالجة رسالة الواتساب:", error.message);
+        console.error("خطأ Webhook:", error.message);
     }
 });
 
-// مسارات ماسنجر
 app.get('/webhook/facebook', (req, res) => {
     if (req.query['hub.mode'] === 'subscribe' && req.query['hub.verify_token'] === CONFIG.FB_VERIFY_TOKEN) {
         res.status(200).send(req.query['hub.challenge']);
@@ -151,5 +142,5 @@ app.post('/webhook/facebook', async (req, res) => {
 });
 
 app.listen(CONFIG.PORT, () => {
-    console.log(`Server is running on port ${CONFIG.PORT}`);
+    console.log(`🚀 Server is running on port ${CONFIG.PORT}`);
 });
