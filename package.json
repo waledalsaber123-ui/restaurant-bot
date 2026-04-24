@@ -1,12 +1,15 @@
 {
-  "name": "restaurant-bot",
+  "name": "saber-bot",
   "version": "1.0.0",
-  "type": "module",
+  "description": "WhatsApp Bot using Green API and OpenAI",
+  "main": "server.js",
   "scripts": {
     "start": "node server.js"
   },
   "dependencies": {
     "axios": "^1.6.0",
-    "express": "^4.18.2"
+    "dotenv": "^16.3.1",
+    "express": "^4.18.2",
+    "openai": "^4.0.0"
   }
 }
