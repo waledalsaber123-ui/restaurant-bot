@@ -27,25 +27,51 @@ async function processMessage(platform, senderId, text, imageUrl = null) {
     const session = userSessions.get(senderId);
     session.lastUpdated = Date.now();
 
-    // تجهيز محتوى الرسالة (نص أو صورة)
     let userContent = [];
-    if (text) userContent.push({ type: "text", text: text });
     if (imageUrl) {
+        // إذا بعت صورة، بنخلي صابر يركز عليها ويربطها بالمنيو فوراً
         userContent.push({ 
             type: "image_url", 
-            image_url: { url: imageUrl, detail: "low" } // detail: low لتوفير التكلفة
+            image_url: { url: imageUrl } 
         });
-        userContent.push({ type: "text", text: "يا صابر، هاي صورة بعتها الزبون، شو فيها وشو بنقدر نعرض عليه من المنيو تبعنا؟" });
+        userContent.push({ type: "text", text: `يا صابر، الزبون بعت هاي الصورة وبيسأل عنها. حللها وجاوبه بأسلوبك الودود (أبشر ومن عيوني) وكمّل معه الطلب: ${text}` });
+    } else {
+        userContent.push({ type: "text", text: text });
     }
 
     session.history.push({ role: "user", content: userContent });
 
+    // تنظيف الذاكرة القديمة إذا زادت عن 10 رسايل عشان ما يضيع
+    if (session.history.length > 12) {
+        session.history.splice(1, 2);
+    }
+
     try {
         const completion = await openai.chat.completions.create({
-            model: "gpt-4o-mini", // هذا الموديل يدعم الرؤية وسريع جداً
+            model: "gpt-4o-mini", 
             messages: session.history,
-            max_tokens: 300,
+            max_tokens: 500, // زدنا التوكنز عشان التحليل يكون أدق
+            temperature: 0.2, // دقة أعلى في الأرقام
         });
+
+        let botReply = completion.choices[0].message.content;
+        session.history.push({ role: "assistant", content: botReply });
+
+        // إرسال الرد للزبون
+        if (platform === 'whatsapp') await sendWhatsAppMessage(senderId, botReply);
+        else if (platform === 'facebook') await sendFacebookMessage(senderId, botReply);
+
+        // إذا تأكد الطلب، ابعت للمطبخ
+        if (botReply.includes("[CONFIRMED_ORDER]")) {
+            const cleanReply = botReply.replace("[CONFIRMED_ORDER]", "").trim();
+            const groupMsg = `🚨 طلب جديد من ${platform}!\nرقم: ${senderId}\n\n${cleanReply}`;
+            await sendWhatsAppMessage(CONFIG.GROUP_ID, groupMsg);
+        }
+
+    } catch (error) {
+        console.error("❌ خطأ في OpenAI:", error.message);
+    }
+}
 
         let botReply = completion.choices[0].message.content;
         session.history.push({ role: "assistant", content: botReply });
