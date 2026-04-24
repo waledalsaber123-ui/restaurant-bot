@@ -82,7 +82,7 @@ app.post('/webhook', async (req, res) => {
         const timer = setTimeout(() => {
             processFinalMessage('whatsapp', senderId);
             pendingResponses.delete(senderId);
-        }, 10000); // 10 ثواني انتظار
+        }, 8000); // 10 ثواني انتظار
 
         pendingResponses.set(senderId, timer);
     }
