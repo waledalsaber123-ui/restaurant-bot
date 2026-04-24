@@ -41,7 +41,7 @@ async function processFinalMessage(platform, senderId) {
     messageQueues.delete(senderId); // تنظيف الطابور
 
     // 3. تنظيف التاريخ (إبقاء آخر 8 رسائل فقط لضمان التركيز العالي)
-    if (session.history.length > 8) {
+    if (session.history.length > 15) {
         session.history.splice(0, 2);
     }
 
