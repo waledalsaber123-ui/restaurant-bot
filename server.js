@@ -94,24 +94,36 @@ async function processMessage(platform, senderId, text) {
 }
 
 // مسار الواتساب
+// مسار الواتساب (محدث لاستقبال الرسائل الواردة بشكل صحيح)
 app.post('/webhook', async (req, res) => {
     res.status(200).send('OK'); 
     try {
         const data = req.body;
-        if (data && data.receiptId && data.stateInstance === 'authorized') {
+        
+        // سطر المراقبة: رح يطبع على الشاشة السوداء أي حركة بتصير عشان نتطمن
+        console.log("استلمت إشعار من الواتساب بنوع:", data.typeWebhook); 
+
+        // التأكد أن الإشعار هو رسالة واردة من زبون
+        if (data && data.typeWebhook === 'incomingMessageReceived') {
              const messageData = data.messageData;
+             const senderData = data.senderData;
+
              if (messageData && messageData.typeMessage === 'textMessage') {
-                 const senderId = data.senderData.chatId;
+                 const senderId = senderData.chatId;
                  const text = messageData.textMessageData.textMessage;
                  
+                 // تجاهل رسائل البوت لنفسه، وتجاهل رسائل الجروبات (عشان ما يرد بجروب المطبخ)، وحالات الواتساب
                  if (senderId !== 'status@broadcast' && 
-                     !data.senderData.sender.includes(CONFIG.ID_INSTANCE) &&
-                     senderId !== CONFIG.GROUP_ID) {
+                     !senderId.includes('@g.us') && 
+                     !data.senderData.sender.includes(CONFIG.ID_INSTANCE)) {
+                     
                     await processMessage('whatsapp', senderId, text);
                  }
              }
         }
-    } catch (error) {}
+    } catch (error) {
+        console.error("خطأ في معالجة رسالة الواتساب:", error.message);
+    }
 });
 
 // مسارات ماسنجر
